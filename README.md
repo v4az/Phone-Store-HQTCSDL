@@ -9,6 +9,12 @@ Inventory and sales management system for a phone & accessories shop.
 - **Tailwind CSS**
 - **pnpm** package manager
 
+## Prerequisites
+
+- [Node.js](https://nodejs.org/) (v18+)
+- [pnpm](https://pnpm.io/)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Linux containers mode)
+
 ## Setup
 
 ### 1. Start SQL Server
@@ -21,13 +27,22 @@ This starts a SQL Server 2022 container on port 1433.
 
 ### 2. Create the database
 
+**Linux / macOS:**
 ```bash
 docker exec -it csdl-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Pass123' -C -Q "CREATE DATABASE csdl"
 ```
 
+**Windows (PowerShell):**
+```powershell
+docker exec -it csdl-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "YourStrong!Pass123" -C -Q "CREATE DATABASE csdl"
+```
+
 ### 3. Run migrations
 
-Open `database/migrations/001_init_schema.sql` in your SQL editor (e.g. VS Code SQL Server extension) and execute it against the `csdl` database.
+Open the files in `database/migrations/` in your SQL editor (e.g. VS Code SQL Server extension) and execute them in order against the `csdl` database:
+
+1. `001_init_schema.sql` — creates all tables
+2. `002_seed_data.sql` — inserts sample data
 
 ### 4. Install dependencies
 
@@ -37,8 +52,14 @@ pnpm install
 
 ### 5. Set environment variables
 
+**Linux / macOS:**
 ```bash
 cp .env.example .env.local
+```
+
+**Windows (PowerShell):**
+```powershell
+Copy-Item .env.example .env.local
 ```
 
 Edit `.env.local` if you changed any defaults.
@@ -67,5 +88,6 @@ lib/
   services/sales.ts       — Invoice logic
 database/
   migrations/001_init_schema.sql — Initial schema (13 tables)
+  migrations/002_seed_data.sql   — Sample data
 docker-compose.yml        — SQL Server 2022 container
 ```
