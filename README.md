@@ -1,36 +1,71 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# CSDL - Phone & Accessories Management
 
-## Getting Started
+Inventory and sales management system for a phone & accessories shop.
 
-First, run the development server:
+## Tech Stack
+
+- **Next.js** (App Router) with TypeScript
+- **SQL Server 2022** (Docker) via `mssql` npm package
+- **Tailwind CSS**
+- **pnpm** package manager
+
+## Setup
+
+### 1. Start SQL Server
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+docker compose up -d
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+This starts a SQL Server 2022 container on port 1433.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 2. Create the database
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+docker exec -it csdl-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Pass123' -C -Q "CREATE DATABASE csdl"
+```
 
-## Learn More
+### 3. Run migrations
 
-To learn more about Next.js, take a look at the following resources:
+Open `database/migrations/001_init_schema.sql` in your SQL editor (e.g. VS Code SQL Server extension) and execute it against the `csdl` database.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 4. Install dependencies
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+pnpm install
+```
 
-## Deploy on Vercel
+### 5. Set environment variables
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+cp .env.example .env.local
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Edit `.env.local` if you changed any defaults.
+
+### 6. Run the dev server
+
+```bash
+pnpm dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+## Project Structure
+
+```
+app/
+  products/page.tsx       — Product list & create form
+  inventory/page.tsx      — Stock view
+  sales/new/page.tsx      — Create sales invoice
+  api/products/route.ts   — Products API (GET, POST)
+  api/inventory/route.ts  — Inventory API (GET)
+  api/sales/route.ts      — Sales API (POST)
+lib/
+  db.ts                   — SQL Server connection pool
+  services/products.ts    — Product queries
+  services/sales.ts       — Invoice logic
+database/
+  migrations/001_init_schema.sql — Initial schema (13 tables)
+docker-compose.yml        — SQL Server 2022 container
+```
