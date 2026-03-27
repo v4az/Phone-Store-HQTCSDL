@@ -6,6 +6,7 @@ Inventory and sales management system for a phone & accessories shop.
 
 - **Next.js** (App Router) with TypeScript
 - **SQL Server 2022** (Docker) via `mssql` npm package
+- **Ant Design** UI components
 - **Tailwind CSS**
 - **pnpm** package manager
 
@@ -20,37 +21,22 @@ Inventory and sales management system for a phone & accessories shop.
 ### 1. Start SQL Server
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
-This starts a SQL Server 2022 container on port 1433.
+This builds a custom SQL Server 2022 image and automatically:
+- Creates the `csdl` database
+- Runs all migration files in `database/migrations/` (schema + seed data)
 
-### 2. Create the database
+> On first run, it takes ~20 seconds for SQL Server to be ready and migrations to complete.
 
-**Linux / macOS:**
-```bash
-docker exec -it csdl-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Pass123' -C -Q "CREATE DATABASE csdl"
-```
-
-**Windows (PowerShell):**
-```powershell
-docker exec -it csdl-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "YourStrong!Pass123" -C -Q "CREATE DATABASE csdl"
-```
-
-### 3. Run migrations
-
-Open the files in `database/migrations/` in your SQL editor (e.g. VS Code SQL Server extension) and execute them in order against the `csdl` database:
-
-1. `001_init_schema.sql` — creates all tables
-2. `002_seed_data.sql` — inserts sample data
-
-### 4. Install dependencies
+### 2. Install dependencies
 
 ```bash
 pnpm install
 ```
 
-### 5. Set environment variables
+### 3. Set environment variables
 
 **Linux / macOS:**
 ```bash
@@ -64,13 +50,23 @@ Copy-Item .env.example .env.local
 
 Edit `.env.local` if you changed any defaults.
 
-### 6. Run the dev server
+### 4. Run the dev server
 
 ```bash
 pnpm dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+## Docker Commands
+
+| Command | Description |
+|---|---|
+| `docker compose up -d --build` | Build image & start (auto-runs migrations) |
+| `docker compose stop` | Stop container (data is kept) |
+| `docker compose up -d` | Restart container (data is kept) |
+| `docker compose down` | Remove container (data is kept in volume) |
+| `docker compose down -v` | Remove container & data (fresh start) |
 
 ## Project Structure
 
@@ -79,15 +75,23 @@ app/
   products/page.tsx       — Product list & create form
   inventory/page.tsx      — Stock view
   sales/new/page.tsx      — Create sales invoice
+  test/page.tsx           — Component showcase page
   api/products/route.ts   — Products API (GET, POST)
   api/inventory/route.ts  — Inventory API (GET)
   api/sales/route.ts      — Sales API (POST)
+components/
+  ProductCard.tsx         — Product display card with image, price, tags
+  ProductGrid.tsx         — Responsive grid of ProductCards
+  VariantSelector.tsx     — Color & storage variant picker
+  DataTable.tsx           — Searchable, sortable table
+  FormField.tsx           — Form input wrapper (text, number, select, switch, textarea)
+  PageHeader.tsx          — Page title with breadcrumbs & action buttons
 lib/
   db.ts                   — SQL Server connection pool
-  services/products.ts    — Product queries
-  services/sales.ts       — Invoice logic
+  types/                  — TypeScript interfaces for all tables
 database/
-  migrations/001_init_schema.sql — Initial schema (13 tables)
-  migrations/002_seed_data.sql   — Sample data
-docker-compose.yml        — SQL Server 2022 container
+  Dockerfile              — Custom SQL Server image with auto-migration
+  init-db.sh              — Startup script (waits for SQL Server, runs migrations)
+  migrations/             — SQL migration files (run in alphabetical order)
+docker-compose.yml        — Docker Compose config
 ```
