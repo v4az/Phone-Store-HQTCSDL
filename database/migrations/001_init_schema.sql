@@ -41,6 +41,7 @@ CREATE TABLE ProductVariant (
     Color           NVARCHAR(50)    NULL,
     Storage         NVARCHAR(20)    NULL,
     OtherAttributes NVARCHAR(500)   NULL,
+    ImageUrl        NVARCHAR(500)   NULL,
     CostPrice       DECIMAL(18,2)   NOT NULL DEFAULT 0,
     RetailPrice     DECIMAL(18,2)   NOT NULL DEFAULT 0,
     IsActive        BIT             NOT NULL DEFAULT 1,
