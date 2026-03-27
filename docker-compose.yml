@@ -1,6 +1,8 @@
 services:
   sqlserver:
-    image: mcr.microsoft.com/mssql/server:2022-latest
+    build:
+      context: ./database
+      dockerfile: Dockerfile
     container_name: csdl-sqlserver
     environment:
       ACCEPT_EULA: "Y"
@@ -9,7 +11,6 @@ services:
       - "1433:1433"
     volumes:
       - sqlserver-data:/var/opt/mssql
-      - ./database/migrations:/migrations:z
 
 volumes:
   sqlserver-data:
