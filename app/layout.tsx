@@ -3,6 +3,7 @@
 
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { AntdRegistry } from "@ant-design/nextjs-registry";
 import Link from "next/link";
 import "./globals.css";
 
@@ -32,13 +33,15 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <nav className="flex items-center gap-6 border-b border-zinc-200 px-6 py-3 text-sm font-medium dark:border-zinc-800">
+        <nav className="flex items-center gap-6 border-b border-zinc-200 px-6 py-3 text-sm font-medium">
           <Link href="/" className="font-bold text-lg mr-4">CSDL</Link>
           <Link href="/products" className="hover:underline">Products</Link>
           <Link href="/inventory" className="hover:underline">Inventory</Link>
           <Link href="/sales/new" className="hover:underline">New Sale</Link>
         </nav>
-        <main className="flex-1 p-6">{children}</main>
+        <AntdRegistry>
+          <main className="flex-1 p-6">{children}</main>
+        </AntdRegistry>
       </body>
     </html>
   );

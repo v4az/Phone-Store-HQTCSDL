@@ -19,6 +19,7 @@ export interface ProductVariant {
   Color: string | null;
   Storage: string | null;
   OtherAttributes: string | null;
+  ImageUrl: string | null;
   CostPrice: number;
   RetailPrice: number;
   IsActive: boolean;
