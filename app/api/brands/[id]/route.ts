@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
-import { getBrandById, updateBrand, deleteBrand } from "@/lib/services/brands";
+import { NextRequest, NextResponse } from "next/server";
+import { getBrandById, updateBrand, softDeleteBrand, hardDeleteBrand } from "@/lib/services";
 
+// GET /api/brands/[id]
 export async function GET(
   request: Request,
   { params }: { params: { id: string } }
@@ -10,10 +11,12 @@ export async function GET(
     if (isNaN(id)) {
       return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
     }
+
     const brand = await getBrandById(id);
     if (!brand) {
       return NextResponse.json({ error: "Brand not found" }, { status: 404 });
     }
+
     return NextResponse.json(brand);
   } catch (error) {
     console.error("Error fetching brand:", error);
@@ -21,8 +24,9 @@ export async function GET(
   }
 }
 
+// PUT /api/brands/[id]
 export async function PUT(
-  request: Request,
+  request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
@@ -30,11 +34,14 @@ export async function PUT(
     if (isNaN(id)) {
       return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
     }
+
     const body = await request.json();
     const updatedBrand = await updateBrand(id, body);
+
     if (!updatedBrand) {
       return NextResponse.json({ error: "Brand not found" }, { status: 404 });
     }
+
     return NextResponse.json(updatedBrand);
   } catch (error) {
     console.error("Error updating brand:", error);
@@ -42,8 +49,10 @@ export async function PUT(
   }
 }
 
+// DELETE /api/brands/[id]
+// ?hard=true → hard delete; otherwise soft delete
 export async function DELETE(
-  request: Request,
+  request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
@@ -51,14 +60,30 @@ export async function DELETE(
     if (isNaN(id)) {
       return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
     }
-    const success = await deleteBrand(id);
+
+    const url = new URL(request.url);
+    const isHard = url.searchParams.get("hard") === "true";
+
+    const success = isHard
+      ? await hardDeleteBrand(id)
+      : await softDeleteBrand(id);
+
     if (!success) {
-      return NextResponse.json({ error: "Brand not found or could not be deleted" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Brand not found or could not be deleted" },
+        { status: 404 }
+      );
     }
-    return NextResponse.json({ success: true });
+
+    return NextResponse.json(
+      { success: true, hard: isHard },
+      { status: 200 }
+    );
   } catch (error) {
     console.error("Error deleting brand:", error);
-    // Might fail due to foreign key constraints
-    return NextResponse.json({ error: "Internal Server Error or dependency constraint" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal Server Error or dependency constraint" },
+      { status: 500 }
+    );
   }
 }
