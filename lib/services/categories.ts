@@ -3,31 +3,35 @@ import { Category } from "@/lib/types";
 import sql from "mssql";
 
 /**
- * Fetch all categories from the database
+ * Fetch all ACTIVE categories from the database (IsActive = true)
  */
 export async function getCategories(): Promise<Category[]> {
   const pool = await getPool();
-  const result = await pool.request().query("SELECT * FROM Category ORDER BY CategoryName");
+  const result = await pool
+    .request()
+    .query("SELECT * FROM Category WHERE IsActive = 1 ORDER BY CategoryName");
   return result.recordset;
 }
 
 /**
- * Fetch a single category by ID
+ * Fetch a single ACTIVE category by ID
  */
 export async function getCategoryById(categoryId: number): Promise<Category | null> {
   const pool = await getPool();
   const result = await pool
     .request()
     .input("categoryId", sql.Int, categoryId)
-    .query("SELECT * FROM Category WHERE CategoryId = @categoryId");
-  
+    .query("SELECT * FROM Category WHERE CategoryId = @categoryId AND IsActive = 1");
+
   return result.recordset.length > 0 ? result.recordset[0] : null;
 }
 
 /**
  * Create a new category
  */
-export async function createCategory(category: Omit<Category, "CategoryId">): Promise<Category> {
+export async function createCategory(
+  category: Omit<Category, "CategoryId">
+): Promise<Category> {
   const pool = await getPool();
   const result = await pool
     .request()
@@ -39,19 +43,22 @@ export async function createCategory(category: Omit<Category, "CategoryId">): Pr
       OUTPUT INSERTED.*
       VALUES (@categoryName, @parentCategoryId, @isActive)
     `);
-  
+
   return result.recordset[0];
 }
 
 /**
- * Update an existing category
+ * Update an existing category (only for ACTIVE categories)
  */
-export async function updateCategory(categoryId: number, category: Partial<Omit<Category, "CategoryId">>): Promise<Category | null> {
+export async function updateCategory(
+  categoryId: number,
+  category: Partial<Omit<Category, "CategoryId">>
+): Promise<Category | null> {
   const pool = await getPool();
-  
-  const sets: string[] = [];
   const request = pool.request();
   request.input("categoryId", sql.Int, categoryId);
+
+  const sets: string[] = [];
 
   if (category.CategoryName !== undefined) {
     request.input("categoryName", sql.NVarChar(100), category.CategoryName);
@@ -66,7 +73,9 @@ export async function updateCategory(categoryId: number, category: Partial<Omit<
     sets.push("IsActive = @isActive");
   }
 
-  if (sets.length === 0) return await getCategoryById(categoryId);
+  if (sets.length === 0) {
+    return await getCategoryById(categoryId);
+  }
 
   const query = `
     UPDATE Category
@@ -80,14 +89,33 @@ export async function updateCategory(categoryId: number, category: Partial<Omit<
 }
 
 /**
- * Delete a category
+ * Soft delete a category (set IsActive = 0, keep the row)
  */
-export async function deleteCategory(categoryId: number): Promise<boolean> {
+export async function softDeleteCategory(categoryId: number): Promise<boolean> {
+  const pool = await getPool();
+  const result = await pool
+    .request()
+    .input("categoryId", sql.Int, categoryId)
+    .query(`
+      UPDATE Category
+      SET IsActive = 0
+      OUTPUT INSERTED.*
+      WHERE CategoryId = @categoryId
+    `);
+
+  return result.recordset.length > 0;
+}
+
+/**
+ * Hard delete a category (physical DELETE from the table)
+ * Only for admin / cleanup; products may reference this category.
+ */
+export async function hardDeleteCategory(categoryId: number): Promise<boolean> {
   const pool = await getPool();
   const result = await pool
     .request()
     .input("categoryId", sql.Int, categoryId)
     .query("DELETE FROM Category WHERE CategoryId = @categoryId");
-  
+
   return result.rowsAffected[0] > 0;
 }
