@@ -265,3 +265,79 @@ export async function hardDeleteProduct(productId: number): Promise<boolean> {
     throw error;
   }
 }
+
+export async function updateProduct(
+  productId: number,
+  product: Partial<Omit<Product, "ProductId" | "Variants">>
+): Promise<Product | null> {
+  const pool = await getPool();
+  const transaction = new sql.Transaction(pool);
+
+  try {
+    await transaction.begin();
+
+    const sets: string[] = [];
+    const request = transaction.request();
+    request.input("productId", sql.Int, productId);
+
+    if (product.ProductCode !== undefined) {
+      request.input("productCode", sql.NVarChar(50), product.ProductCode);
+      sets.push("ProductCode = @productCode");
+    }
+    if (product.ProductName !== undefined) {
+      request.input("productName", sql.NVarChar(200), product.ProductName);
+      sets.push("ProductName = @productName");
+    }
+    if (product.BrandId !== undefined) {
+      request.input("brandId", sql.Int, product.BrandId);
+      sets.push("BrandId = @brandId");
+    }
+    if (product.BrandName !== undefined) {
+      request.input("brandName", sql.NVarChar(100), product.BrandName);
+      sets.push("b.BrandName = @brandName"); // if you keep it in Brand, not Product
+    }
+    if (product.CategoryId !== undefined) {
+      request.input("categoryId", sql.Int, product.CategoryId);
+      sets.push("CategoryId = @categoryId");
+    }
+    if (product.CategoryName !== undefined) {
+      request.input("categoryName", sql.NVarChar(100), product.CategoryName);
+      sets.push("c.CategoryName = @categoryName");
+    }
+    if (product.WarrantyMonths !== undefined) {
+      request.input("warrantyMonths", sql.Int, product.WarrantyMonths);
+      sets.push("WarrantyMonths = @warrantyMonths");
+    }
+    if (product.Description !== undefined) {
+      request.input("description", sql.NVarChar, product.Description ?? null);
+      sets.push("Description = @description");
+    }
+    if (product.IsActive !== undefined) {
+      request.input("isActive", sql.Bit, product.IsActive);
+      sets.push("IsActive = @isActive");
+    }
+
+    if (sets.length === 0) {
+      await transaction.commit();
+      return await getProductById(productId);
+    }
+
+    // Only update Product table fields that live in Product
+    const query = `
+      UPDATE Product
+      SET ${sets.filter(s => !s.includes("b.BrandName") && !s.includes("c.CategoryName")).join(", ")}
+      OUTPUT INSERTED.*
+      WHERE ProductId = @productId
+    `;
+
+    const result = await request.query(query);
+    await transaction.commit();
+
+    if (result.recordset.length === 0) return null;
+
+    return result.recordset[0] as Product;
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
+}
