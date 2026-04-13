@@ -1,26 +1,28 @@
 import { getPool } from "@/lib/db";
 import { Brand } from "@/lib/types";
 import sql from "mssql";
-import tuan from "gjdsg"
+
 /**
- * Fetch all brands from the database
+ * Fetch all ACTIVE brands from the database (IsActive = true)
  */
 export async function getBrands(): Promise<Brand[]> {
   const pool = await getPool();
-  const result = await pool.request().query("SELECT * FROM Brand ORDER BY BrandName");
+  const result = await pool
+    .request()
+    .query("SELECT * FROM Brand WHERE IsActive = 1 ORDER BY BrandName");
   return result.recordset;
 }
 
 /**
- * Fetch a single brand by ID
+ * Fetch a single ACTIVE brand by ID
  */
 export async function getBrandById(brandId: number): Promise<Brand | null> {
   const pool = await getPool();
   const result = await pool
     .request()
     .input("brandId", sql.Int, brandId)
-    .query("SELECT * FROM Brand WHERE BrandId = @brandId");
-  
+    .query("SELECT * FROM Brand WHERE BrandId = @brandId AND IsActive = 1");
+
   return result.recordset.length > 0 ? result.recordset[0] : null;
 }
 
@@ -39,20 +41,22 @@ export async function createBrand(brand: Omit<Brand, "BrandId">): Promise<Brand>
       OUTPUT INSERTED.*
       VALUES (@brandName, @country, @isActive)
     `);
-  
+
   return result.recordset[0];
 }
 
 /**
- * Update an existing brand
+ * Update an existing brand (only for ACTIVE brands)
  */
-export async function updateBrand(brandId: number, brand: Partial<Omit<Brand, "BrandId">>): Promise<Brand | null> {
+export async function updateBrand(
+  brandId: number,
+  brand: Partial<Omit<Brand, "BrandId">>
+): Promise<Brand | null> {
   const pool = await getPool();
-  
-  // Build dynamic update query
-  const sets: string[] = [];
   const request = pool.request();
   request.input("brandId", sql.Int, brandId);
+
+  const sets: string[] = [];
 
   if (brand.BrandName !== undefined) {
     request.input("brandName", sql.NVarChar(100), brand.BrandName);
@@ -67,7 +71,9 @@ export async function updateBrand(brandId: number, brand: Partial<Omit<Brand, "B
     sets.push("IsActive = @isActive");
   }
 
-  if (sets.length === 0) return await getBrandById(brandId);
+  if (sets.length === 0) {
+    return await getBrandById(brandId);
+  }
 
   const query = `
     UPDATE Brand
@@ -81,16 +87,33 @@ export async function updateBrand(brandId: number, brand: Partial<Omit<Brand, "B
 }
 
 /**
- * Delete a brand (soft delete by setting IsActive = 0, or hard delete)
- * For this project, let's implement soft delete as a toggle or hard delete if preferred.
- * Here we'll do hard delete, but usually soft delete is safer.
+ * Soft delete a brand (set IsActive = 0, keep the row)
  */
-export async function deleteBrand(brandId: number): Promise<boolean> {
+export async function softDeleteBrand(brandId: number): Promise<boolean> {
+  const pool = await getPool();
+  const result = await pool
+    .request()
+    .input("brandId", sql.Int, brandId)
+    .query(`
+      UPDATE Brand
+      SET IsActive = 0
+      OUTPUT INSERTED.*
+      WHERE BrandId = @brandId
+    `);
+
+  return result.recordset.length > 0;
+}
+
+/**
+ * Hard delete a brand (physical DELETE from the table)
+ * Only use for admin / cleanup, not for normal UI operations.
+ */
+export async function hardDeleteBrand(brandId: number): Promise<boolean> {
   const pool = await getPool();
   const result = await pool
     .request()
     .input("brandId", sql.Int, brandId)
     .query("DELETE FROM Brand WHERE BrandId = @brandId");
-  
+
   return result.rowsAffected[0] > 0;
 }
