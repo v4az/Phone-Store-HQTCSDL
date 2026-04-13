@@ -1,17 +1,6 @@
 // Product & Variant types
 // Maps to: Product, ProductVariant tables
 
-export interface Product {
-  ProductId: number;
-  ProductCode: string;
-  ProductName: string;
-  BrandId: number;
-  CategoryId: number;
-  WarrantyMonths: number;
-  Description: string | null;
-  IsActive: boolean;
-}
-
 export interface ProductVariant {
   VariantId: number;
   ProductId: number;
@@ -23,4 +12,18 @@ export interface ProductVariant {
   CostPrice: number;
   RetailPrice: number;
   IsActive: boolean;
+}
+
+export interface Product {
+  ProductId: number;
+  ProductCode: string;
+  ProductName: string;
+  BrandId: number;
+  BrandName: string;
+  CategoryId: number;
+  CategoryName: string;
+  WarrantyMonths: number;
+  Description: string | null;
+  IsActive: boolean;
+  Variants: ProductVariant[];
 }
