@@ -4,3 +4,9 @@ export interface SalesSummaryByPeriod {
   TotalAmount: number;
   FinalAmount: number;
 }
+
+export interface SalesReportOptions {
+  from?: string; // ISO "2024-01-01"
+  to?: string;   // ISO "2024-12-31"
+  interval: "day" | "week" | "month" | "quarter" | "year";
+}
