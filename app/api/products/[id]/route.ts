@@ -1,14 +1,17 @@
+// app/api/products/[id]/route.ts
+
 import { NextRequest, NextResponse } from "next/server";
-import { getProductById, updateProduct, softDeleteProduct } from "@/lib/services/";
+import { getProductById, updateProduct, softDeleteProduct } from "@/lib/services";
 import { Product } from "@/lib/types";
 
 // GET /api/products/[id]
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }  // ← type it as Promise
 ) {
   try {
-    const productId = Number(params.id);
+    const { id } = await params;
+    const productId = Number(id);
 
     if (isNaN(productId)) {
       return NextResponse.json(
@@ -36,13 +39,14 @@ export async function GET(
   }
 }
 
-// PATCH /api/products/[id] (or PUT if you prefer)
+// PATCH /api/products/[id]
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const productId = Number(params.id);
+    const { id } = await params;
+    const productId = Number(id);
 
     if (isNaN(productId)) {
       return NextResponse.json(
@@ -53,15 +57,7 @@ export async function PATCH(
 
     const body = await request.json();
 
-    const productData: {
-      ProductCode?: string;
-      ProductName?: string;
-      BrandId?: number;
-      CategoryId?: number;
-      WarrantyMonths?: number;
-      Description?: string | null;
-      IsActive?: boolean;
-    } = {
+    const productData: Partial<Omit<Product, "ProductId" | "Variants">> = {
       ProductCode: body.ProductCode,
       ProductName: body.ProductName,
       BrandId: body.BrandId,
@@ -93,10 +89,11 @@ export async function PATCH(
 // DELETE /api/products/[id] (soft delete)
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const productId = Number(params.id);
+    const { id } = await params;
+    const productId = Number(id);
 
     if (isNaN(productId)) {
       return NextResponse.json(
@@ -114,10 +111,7 @@ export async function DELETE(
       );
     }
 
-    return NextResponse.json(
-      { success: true },
-      { status: 200 }
-    );
+    return NextResponse.json({ success: true }, { status: 200 });
   } catch (error: any) {
     console.error("DELETE /api/products/[id] error:", error);
     return NextResponse.json(

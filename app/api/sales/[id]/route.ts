@@ -7,15 +7,17 @@ import { SalesInvoice } from "@/lib/types";
 // GET /api/sales/[id]
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const id = parseInt(params.id);
-    if (isNaN(id)) {
+    const { id } = await params;
+    const invoiceId = Number(id);
+
+    if (isNaN(invoiceId)) {
       return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
     }
 
-    const invoice = await getInvoiceById(id);
+    const invoice = await getInvoiceById(invoiceId);
     if (!invoice) {
       return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
     }
@@ -23,21 +25,20 @@ export async function GET(
     return NextResponse.json(invoice);
   } catch (error: any) {
     console.error("GET /api/sales/[id] error:", error);
-    return NextResponse.json(
-      { error: "Failed to load invoice" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to load invoice" }, { status: 500 });
   }
 }
 
 // PUT /api/sales/[id]
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const id = parseInt(params.id);
-    if (isNaN(id)) {
+    const { id } = await params;
+    const invoiceId = Number(id);
+
+    if (isNaN(invoiceId)) {
       return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
     }
 
@@ -52,7 +53,7 @@ export async function PUT(
       CreatedBy: body.CreatedBy
     };
 
-    const updatedInvoice = await updateInvoice(id, invoiceData);
+    const updatedInvoice = await updateInvoice(invoiceId, invoiceData);
 
     if (!updatedInvoice) {
       return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
@@ -61,9 +62,6 @@ export async function PUT(
     return NextResponse.json(updatedInvoice);
   } catch (error: any) {
     console.error("PUT /api/sales/[id] error:", error);
-    return NextResponse.json(
-      { error: "Failed to update invoice" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to update invoice" }, { status: 500 });
   }
 }

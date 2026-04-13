@@ -12,7 +12,7 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const id = params.id;
+    const id = await params.id;
     const [type, key] = id.split(":");
 
     if (!type || !key) {
