@@ -73,7 +73,7 @@ export async function getInvoiceById(
     .query(`
       SELECT
         sil.InvoiceId,
-        sil.LineNo,
+        sil.[LineNo],
         sil.VariantId,
         sil.Quantity,
         sil.UnitPrice,
@@ -81,7 +81,7 @@ export async function getInvoiceById(
         sil.LineTotal
       FROM SalesInvoiceLine sil
       WHERE sil.InvoiceId = @invoiceId
-      ORDER BY sil.LineNo
+      ORDER BY sil.[LineNo]
     `);
 
   const lines: SalesInvoiceLine[] = linesResult.recordset.map((row) => ({
@@ -240,7 +240,7 @@ export async function createInvoice(
         .query(`
           INSERT INTO SalesInvoiceLine (
             InvoiceId,
-            LineNo,
+            [LineNo],
             VariantId,
             Quantity,
             UnitPrice,
