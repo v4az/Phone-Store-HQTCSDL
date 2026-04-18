@@ -16,8 +16,9 @@ export default function SaleForm() {
   const [products, setProducts] = useState([]);
   
   // Track dynamic totals
-  const [totalAmount, setTotalAmount] = useState(0);
-  const [discountAmount, setDiscountAmount] = useState(0);
+  const [subtotal, setSubtotal] = useState(0);
+  const [totalAfterLineDiscount, setTotalAfterLineDiscount] = useState(0);
+  const [invoiceDiscount, setInvoiceDiscount] = useState(0);
 
   useEffect(() => {
     async function fetchProducts() {
@@ -42,7 +43,8 @@ export default function SaleForm() {
   const calculateTotals = () => {
     const values = form.getFieldsValue();
     const lines = values.Lines || [];
-    let newTotal = 0;
+    let rawSubtotal = 0;
+    let discountedTotal = 0;
 
     lines.forEach((line: any, index: number) => {
       if (line && line.VariantId && line.Quantity) {
@@ -51,22 +53,23 @@ export default function SaleForm() {
           const unitPrice = Number(variant.price);
           const qty = Number(line.Quantity) || 0;
           const discountPct = Number(line.DiscountPct) || 0;
-          
-          const lineTotal = (unitPrice * qty) * (1 - discountPct / 100);
-          newTotal += lineTotal;
-          
-          // Auto-update unit price if not set or just for reference
+
+          rawSubtotal += unitPrice * qty;
+          discountedTotal += (unitPrice * qty) * (1 - discountPct / 100);
+
+          // Auto-update unit price for display
           const currentUnitPrice = form.getFieldValue(['Lines', index, 'UnitPrice']);
           if (!currentUnitPrice) {
-             form.setFieldValue(['Lines', index, 'UnitPrice'], unitPrice);
+            form.setFieldValue(['Lines', index, 'UnitPrice'], unitPrice);
           }
         }
       }
     });
 
-    setTotalAmount(newTotal);
-    const invoiceDiscount = Number(values.DiscountAmount) || 0;
-    setDiscountAmount(invoiceDiscount);
+    setSubtotal(rawSubtotal);
+    setTotalAfterLineDiscount(discountedTotal);
+    const disc = Number(values.DiscountAmount) || 0;
+    setInvoiceDiscount(disc);
   };
 
   const onFinish = async (values: any) => {
@@ -253,17 +256,25 @@ export default function SaleForm() {
               
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
                 <Text>Tổng cộng:</Text>
-                <Text strong>{formatter.format(totalAmount)}</Text>
+                <Text strong>{formatter.format(subtotal)}</Text>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                <Text>Giảm giá:</Text>
-                <Text type="danger">-{formatter.format(discountAmount)}</Text>
-              </div>
+              {subtotal - totalAfterLineDiscount > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                  <Text>Giảm giá SP:</Text>
+                  <Text type="danger">-{formatter.format(subtotal - totalAfterLineDiscount)}</Text>
+                </div>
+              )}
+              {invoiceDiscount > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                  <Text>Giảm giá đơn:</Text>
+                  <Text type="danger">-{formatter.format(invoiceDiscount)}</Text>
+                </div>
+              )}
               <Divider style={{ margin: "12px 0" }} />
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 24 }}>
                 <Text strong style={{ fontSize: 16 }}>Khách cần trả:</Text>
                 <Title level={4} style={{ margin: 0, color: "#1677ff" }}>
-                  {formatter.format(Math.max(0, totalAmount - discountAmount))}
+                  {formatter.format(Math.max(0, totalAfterLineDiscount - invoiceDiscount))}
                 </Title>
               </div>
 
