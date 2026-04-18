@@ -2,80 +2,54 @@
 
 ## Tổng quan
 
-Hệ thống quản lý cửa hàng điện thoại & phụ kiện sử dụng SQL Server 2022, thiết kế theo mô hình quan hệ. Trong quá trình phát triển, chúng tôi đã gặp và giải quyết nhiều vấn đề thực tế liên quan đến thiết kế schema, reserved keywords, trigger, thứ tự migration, và 5 bài toán concurrency kinh điển.
+SQL Server 2022. Mô hình quan hệ cho hệ thống quản lý cửa hàng điện thoại & phụ kiện.
 
 ---
 
-## Schema Design
+## Schema
 
 ### Master Data
 
-**Brand** — Thương hiệu sản phẩm.
-- PK: `BrandId` (IDENTITY)
-- Unique: `BrandName`
-- Cột: `Country`, `IsActive` (soft delete)
-
-**Category** — Danh mục sản phẩm, hỗ trợ phân cấp.
-- PK: `CategoryId` (IDENTITY)
-- FK: `ParentCategoryId` → `Category(CategoryId)` (self-referencing)
-- Cho phép cấu trúc cây: Phones, Accessories → Cases, Chargers, Earphones
-
-**Supplier** — Nhà cung cấp hàng hóa.
-- PK: `SupplierId` (IDENTITY)
-- Cột: `Name`, `Phone`, `Address`, `IsActive`
-
-**InventoryLocation** — Kho hàng / cửa hàng.
-- PK: `LocationId` (IDENTITY)
-- Cột: `LocationName`, `Address`
+| Bảng | Mô tả | PK | FK | Unique |
+|---|---|---|---|---|
+| `Brand` | Thương hiệu | `BrandId` (IDENTITY) | — | `BrandName` |
+| `Category` | Danh mục (phân cấp) | `CategoryId` (IDENTITY) | `ParentCategoryId` → `Category` | — |
+| `Supplier` | Nhà cung cấp | `SupplierId` (IDENTITY) | — | — |
+| `InventoryLocation` | Kho hàng | `LocationId` (IDENTITY) | — | — |
 
 ### Catalog
 
-**Product** — Thông tin sản phẩm cơ bản.
-- PK: `ProductId` (IDENTITY)
-- FK: `BrandId` → `Brand`, `CategoryId` → `Category`
-- Unique: `ProductCode`
-- Cột: `ProductName`, `WarrantyMonths`, `Description`, `IsActive`
+| Bảng | Mô tả | PK | FK | Unique |
+|---|---|---|---|---|
+| `Product` | Sản phẩm | `ProductId` (IDENTITY) | `BrandId` → `Brand`, `CategoryId` → `Category` | `ProductCode` |
+| `ProductVariant` | Biến thể (SKU, màu, giá) | `VariantId` (IDENTITY) | `ProductId` → `Product` | `Sku` |
 
-**ProductVariant** — Biến thể theo SKU (màu, dung lượng, giá).
-- PK: `VariantId` (IDENTITY)
-- FK: `ProductId` → `Product`
-- Unique: `Sku`
-- Cột: `Color`, `Storage`, `OtherAttributes`, `ImageUrl`, `CostPrice`, `RetailPrice`, `IsActive`
-
-Quan hệ: `Product` 1:N `ProductVariant`. Mỗi sản phẩm có thể có nhiều biến thể (iPhone 15 Black 128GB, iPhone 15 Blue 256GB,...).
+Quan hệ: `Product` 1:N `ProductVariant`.
 
 ### Inventory
 
-**InventoryStock** — Tồn kho theo biến thể và kho hàng.
-- PK: `VariantId` + `LocationId` (composite)
-- FK: `VariantId` → `ProductVariant`, `LocationId` → `InventoryLocation`
-- Cột: `QuantityOnHand` (thực có), `QuantityReserved` (đã đặt)
-- Available = `QuantityOnHand` - `QuantityReserved`
+| Bảng | Mô tả | PK | FK |
+|---|---|---|---|
+| `InventoryStock` | Tồn kho theo variant + location | `VariantId` + `LocationId` (composite) | `VariantId` → `ProductVariant`, `LocationId` → `InventoryLocation` |
+
+Cột: `QuantityOnHand` (thực có), `QuantityReserved` (đã đặt). Available = OnHand - Reserved.
 
 ### Transactions
 
-**SalesInvoice** — Hóa đơn bán hàng.
-- PK: `InvoiceId` (IDENTITY)
-- Unique: `InvoiceCode`
-- Cột: `CustomerName`, `CustomerPhone`, `InvoiceDate`, `TotalAmount`, `DiscountAmount`, `FinalAmount`, `CreatedBy`
+| Bảng | Mô tả | PK | FK | Unique |
+|---|---|---|---|---|
+| `SalesInvoice` | Hóa đơn bán hàng | `InvoiceId` (IDENTITY) | — | `InvoiceCode` |
+| `SalesInvoiceLine` | Chi tiết dòng hàng | `InvoiceId` + `[LineNo]` (composite) | `InvoiceId` → `SalesInvoice`, `VariantId` → `ProductVariant` | — |
+| `PurchaseOrder` | Đơn nhập hàng | `PurchaseId` (IDENTITY) | `SupplierId` → `Supplier` | — |
+| `PurchaseOrderLine` | Chi tiết nhập | `PurchaseId` + `[LineNo]` (composite) | `PurchaseId` → `PurchaseOrder`, `VariantId` → `ProductVariant` | — |
 
-Ban đầu thiết kế có bảng `Customer` riêng với FK `CustomerId` trên `SalesInvoice`. Tuy nhiên, nhận thấy với mô hình cửa hàng điện thoại, việc lưu thông tin khách trực tiếp trên hóa đơn đơn giản hơn — tra cứu lịch sử mua hàng chỉ cần tìm theo SĐT. Bảng `Customer` đã được loại bỏ qua migration `005`.
+`SalesInvoice` lưu thông tin khách inline (`CustomerName`, `CustomerPhone`) — không dùng bảng Customer riêng. Tra cứu lịch sử mua hàng qua SĐT.
 
-**SalesInvoiceLine** — Chi tiết dòng hàng.
-- PK: `InvoiceId` + `[LineNo]` (composite)
-- FK: `InvoiceId` → `SalesInvoice`, `VariantId` → `ProductVariant`
-- Cột: `Quantity`, `UnitPrice`, `DiscountPct`, `LineTotal`
-
-**PurchaseOrder / PurchaseOrderLine** — Đơn nhập hàng (cấu trúc tương tự SalesInvoice).
-- FK: `SupplierId` → `Supplier`, `VariantId` → `ProductVariant`
-
-**Vấn đề `LineNo`**: `LineNo` là reserved keyword trong SQL Server (từ Transact-SQL cũ). Nếu dùng trực tiếp trong INSERT/SELECT sẽ gặp lỗi syntax. Phải luôn escape bằng `[LineNo]`. Schema đã định nghĩa đúng từ đầu, nhưng service layer quên escape — gây lỗi 500 khi tạo đơn hàng.
+`[LineNo]` là reserved keyword trong SQL Server — phải escape trong mọi query.
 
 ---
 
 ## CHECK Constraints
-
-Đảm bảo tính toàn vẹn dữ liệu tại tầng database, không phụ thuộc application logic:
 
 | Constraint | Bảng | Điều kiện |
 |---|---|---|
@@ -86,7 +60,7 @@ Ban đầu thiết kế có bảng `Customer` riêng với FK `CustomerId` trên
 | `CHK_InventoryStock_QuantityReserved` | InventoryStock | `QuantityReserved >= 0` |
 | `CHK_SalesInvoiceLine_Quantity` | SalesInvoiceLine | `Quantity > 0` |
 | `CHK_SalesInvoiceLine_UnitPrice` | SalesInvoiceLine | `UnitPrice >= 0` |
-| `CHK_SalesInvoiceLine_DiscountPct` | SalesInvoiceLine | `DiscountPct >= 0 AND <= 100` |
+| `CHK_SalesInvoiceLine_DiscountPct` | SalesInvoiceLine | `0 <= DiscountPct <= 100` |
 | `CHK_SalesInvoice_TotalAmount` | SalesInvoice | `TotalAmount >= 0` |
 | `CHK_SalesInvoice_FinalAmount` | SalesInvoice | `FinalAmount >= 0` |
 
@@ -95,6 +69,11 @@ Ban đầu thiết kế có bảng `Customer` riêng với FK `CustomerId` trên
 ## Trigger
 
 ### TR_ProductVariant_AfterInsert
+
+Bảng: `ProductVariant` | Loại: `AFTER INSERT`
+
+Tự động tạo `InventoryStock` (qty = 0) cho tất cả kho hàng khi thêm variant mới.
+
 ```sql
 CREATE TRIGGER TR_ProductVariant_AfterInsert
 ON ProductVariant
@@ -109,40 +88,21 @@ BEGIN
 END;
 ```
 
-Khi tạo biến thể mới, trigger tự động tạo bản ghi `InventoryStock` (qty = 0) cho **tất cả** kho hàng. SKU mới xuất hiện ngay trong hệ thống tồn kho.
-
-**Vấn đề gặp phải**: SQL Server không cho phép `OUTPUT INSERTED.*` trên bảng có trigger (trừ khi dùng `OUTPUT INTO`). Lỗi: *"The target table 'ProductVariant' of the DML statement cannot have any enabled triggers..."*
-
-**Giải pháp**: Thay `OUTPUT INSERTED.VariantId` bằng `SELECT SCOPE_IDENTITY()`. Và vì trigger đã tạo InventoryStock với qty = 0, muốn set tồn kho ban đầu > 0 thì dùng UPDATE thay vì INSERT (tránh duplicate key).
+Lưu ý: Bảng có trigger không cho phép `OUTPUT INSERTED.*` — phải dùng `SELECT SCOPE_IDENTITY()` thay thế.
 
 ---
 
-## Seed Data & Migration Order
+## Migrations
 
-Trigger nằm ở migration `004`, nhưng seed data tạo ProductVariant ở migration `002`. Kết quả: variant từ seed data không có InventoryStock — tồn kho trống.
-
-**Giải pháp**: Thêm INSERT InventoryStock ở cuối `002` với qty mặc định = 10, kèm `NOT EXISTS` để không xung đột nếu trigger chạy trước:
-```sql
-INSERT INTO InventoryStock (VariantId, LocationId, QuantityOnHand, QuantityReserved)
-SELECT pv.VariantId, 1, 10, 0
-FROM ProductVariant pv
-WHERE NOT EXISTS (
-    SELECT 1 FROM InventoryStock ist
-    WHERE ist.VariantId = pv.VariantId AND ist.LocationId = 1
-);
-```
-
-### Migration Tracking
-
-Hệ thống sử dụng bảng `_MigrationHistory` để theo dõi migration đã apply. Mỗi file `.sql` chỉ chạy đúng 1 lần, dừng ngay khi gặp lỗi.
+Theo dõi qua bảng `_MigrationHistory`. Mỗi file chạy đúng 1 lần.
 
 | Migration | Mục đích |
 |---|---|
 | `001_init_schema.sql` | Tạo toàn bộ bảng, PK, FK, unique constraints |
-| `002_seed_data.sql` | Seed brands, categories, 10 products, variants, location, inventory |
-| `003_enable_snapshot_isolation.sql` | Bật `ALLOW_SNAPSHOT_ISOLATION` |
-| `004_add_validation_constraints.sql` | CHECK constraints + trigger |
-| `005_inline_customer_on_invoice.sql` | Inline customer lên SalesInvoice, xóa bảng Customer |
+| `002_seed_data.sql` | Seed brands, categories, 10 products, variants, location, inventory (qty 10) |
+| `003_enable_snapshot_isolation.sql` | Bật `ALLOW_SNAPSHOT_ISOLATION` cho phantom read prevention |
+| `004_add_validation_constraints.sql` | CHECK constraints + trigger `TR_ProductVariant_AfterInsert` |
+| `005_inline_customer_on_invoice.sql` | Chuyển customer info inline lên SalesInvoice, xóa bảng Customer |
 
 ---
 
