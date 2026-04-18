@@ -22,7 +22,7 @@ export default function SaleForm() {
 
   useEffect(() => {
     async function fetchProducts() {
-      const res = await fetch("/api/products?include=variants");
+      const res = await fetch("/api/products?include=variants", { cache: "no-store" });
       if (res.ok) setProducts(await res.json());
     }
     fetchProducts();

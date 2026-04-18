@@ -17,8 +17,8 @@ export default function DashboardStats() {
     async function fetchData() {
       try {
         const [reportsRes, productsRes] = await Promise.all([
-          fetch("/api/reports?interval=month"),
-          fetch("/api/products")
+          fetch("/api/reports?interval=month", { cache: "no-store" }),
+          fetch("/api/products", { cache: "no-store" })
         ]);
 
         if (reportsRes.ok) {

@@ -14,7 +14,7 @@ export default function SalesHistory() {
   useEffect(() => {
     async function fetchSales() {
       try {
-        const res = await fetch("/api/sales");
+        const res = await fetch("/api/sales", { cache: "no-store" });
         if (res.ok) {
           const invoices = await res.json();
           // Sort by date descending and take top 5

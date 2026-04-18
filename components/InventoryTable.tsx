@@ -13,7 +13,7 @@ export default function InventoryTable() {
   useEffect(() => {
     async function fetchInventory() {
       try {
-        const res = await fetch("/api/inventory");
+        const res = await fetch("/api/inventory", { cache: "no-store" });
         if (res.ok) {
           const result = await res.json();
           setData(result);

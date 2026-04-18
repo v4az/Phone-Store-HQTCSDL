@@ -18,7 +18,7 @@ export default function SalesTable() {
   useEffect(() => {
     async function fetchSales() {
       try {
-        const res = await fetch("/api/sales");
+        const res = await fetch("/api/sales", { cache: "no-store" });
         if (res.ok) setData(await res.json());
       } catch {
         message.error("Lỗi khi tải danh sách giao dịch");
