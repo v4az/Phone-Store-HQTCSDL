@@ -24,8 +24,6 @@ SQL Server 2022. Mô hình quan hệ cho hệ thống quản lý cửa hàng đi
 | `Product` | Sản phẩm | `ProductId` (IDENTITY) | `BrandId` → `Brand`, `CategoryId` → `Category` | `ProductCode` |
 | `ProductVariant` | Biến thể (SKU, màu, giá) | `VariantId` (IDENTITY) | `ProductId` → `Product` | `Sku` |
 
-Quan hệ: `Product` 1:N `ProductVariant`.
-
 ### Inventory
 
 | Bảng | Mô tả | PK | FK |
@@ -45,7 +43,55 @@ Cột: `QuantityOnHand` (thực có), `QuantityReserved` (đã đặt). Availabl
 
 `SalesInvoice` lưu thông tin khách inline (`CustomerName`, `CustomerPhone`) — không dùng bảng Customer riêng. Tra cứu lịch sử mua hàng qua SĐT.
 
-`[LineNo]` là reserved keyword trong SQL Server — phải escape trong mọi query.
+`[LineNo]` là reserved keyword trong SQL Server — phải escape bằng `[LineNo]` trong mọi query.
+
+---
+
+## Quan hệ (Relationships)
+
+### Các loại quan hệ trong hệ thống
+
+**1:N (One-to-Many)** — Quan hệ phổ biến nhất:
+- `Brand` 1:N `Product` — Một thương hiệu có nhiều sản phẩm
+- `Category` 1:N `Product` — Một danh mục chứa nhiều sản phẩm
+- `Product` 1:N `ProductVariant` — Một sản phẩm có nhiều biến thể (màu, dung lượng)
+- `Supplier` 1:N `PurchaseOrder` — Một nhà cung cấp có nhiều đơn nhập
+- `SalesInvoice` 1:N `SalesInvoiceLine` — Một hóa đơn có nhiều dòng hàng
+- `PurchaseOrder` 1:N `PurchaseOrderLine` — Một đơn nhập có nhiều dòng hàng
+- `ProductVariant` 1:N `SalesInvoiceLine` — Một biến thể xuất hiện trong nhiều hóa đơn
+- `ProductVariant` 1:N `PurchaseOrderLine` — Một biến thể xuất hiện trong nhiều đơn nhập
+
+**Self-referencing (Đệ quy):**
+- `Category` → `Category` qua `ParentCategoryId` — Cho phép phân cấp danh mục (VD: Accessories → Cases, Chargers, Earphones). `ParentCategoryId = NULL` là danh mục gốc.
+
+**N:M (Many-to-Many) qua bảng trung gian:**
+- `ProductVariant` N:M `InventoryLocation` qua `InventoryStock` — Mỗi biến thể có thể tồn tại ở nhiều kho, mỗi kho chứa nhiều biến thể. Composite PK (`VariantId`, `LocationId`) đảm bảo mỗi cặp variant-location chỉ có 1 bản ghi tồn kho.
+
+### Sơ đồ quan hệ
+
+```
+Brand ──1:N──► Product ──1:N──► ProductVariant ──1:N──► SalesInvoiceLine
+                  ▲                     │                        │
+Category ──1:N────┘                     │                        │
+                                        ▼                        ▼
+                              InventoryStock              SalesInvoice
+                                        ▲
+InventoryLocation ──1:N─────────────────┘
+
+Supplier ──1:N──► PurchaseOrder ──1:N──► PurchaseOrderLine
+                                                │
+                                ProductVariant ◄─┘
+
+Category ──self──► Category (ParentCategoryId)
+```
+
+### Chiến lược khóa
+
+- **Primary Key (PK)**: Mỗi bảng dùng `IDENTITY(1,1)` cho surrogate key, trừ bảng trung gian dùng composite PK.
+- **Composite PK**: `InventoryStock(VariantId, LocationId)`, `SalesInvoiceLine(InvoiceId, [LineNo])`, `PurchaseOrderLine(PurchaseId, [LineNo])` — đảm bảo tính duy nhất của tổ hợp.
+- **Foreign Key (FK)**: Ràng buộc tham chiếu toàn vẹn. Không thể xóa Brand nếu còn Product tham chiếu. Không thể xóa ProductVariant nếu còn InventoryStock hoặc SalesInvoiceLine tham chiếu.
+- **Unique Constraint**: `ProductCode`, `Sku`, `InvoiceCode` — đảm bảo mã không trùng lặp trong toàn hệ thống.
+- **Soft Delete**: Các bảng master (`Brand`, `Category`, `Product`, `ProductVariant`, `Supplier`) dùng cột `IsActive BIT` thay vì xóa vật lý — giữ lại dữ liệu lịch sử, tránh vi phạm FK.
 
 ---
 
