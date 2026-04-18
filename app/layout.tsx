@@ -4,7 +4,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AntdRegistry } from "@ant-design/nextjs-registry";
-import Link from "next/link";
+import AppShell from "@/components/AppShell";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -22,6 +22,8 @@ export const metadata: Metadata = {
   description: "Inventory and sales management for phone & accessories shop",
 };
 
+import { ConfigProvider } from "antd";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -32,15 +34,11 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
-        <nav className="flex items-center gap-6 border-b border-zinc-200 px-6 py-3 text-sm font-medium">
-          <Link href="/" className="font-bold text-lg mr-4">CSDL</Link>
-          <Link href="/products" className="hover:underline">Products</Link>
-          <Link href="/inventory" className="hover:underline">Inventory</Link>
-          <Link href="/sales/new" className="hover:underline">New Sale</Link>
-        </nav>
+      <body className="min-h-full flex flex-col m-0 p-0">
         <AntdRegistry>
-          <main className="flex-1 p-6">{children}</main>
+          <ConfigProvider theme={{ token: { motion: false } }}>
+            <AppShell>{children}</AppShell>
+          </ConfigProvider>
         </AntdRegistry>
       </body>
     </html>

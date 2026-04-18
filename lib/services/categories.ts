@@ -9,7 +9,13 @@ export async function getCategories(): Promise<Category[]> {
   const pool = await getPool();
   const result = await pool
     .request()
-    .query("SELECT * FROM Category WHERE IsActive = 1 ORDER BY CategoryName");
+    .query(`
+      SELECT MIN(CategoryId) as CategoryId, CategoryName, MIN(ParentCategoryId) as ParentCategoryId, CAST(1 AS BIT) as IsActive
+      FROM Category 
+      WHERE IsActive = 1 
+      GROUP BY CategoryName 
+      ORDER BY CategoryName
+    `);
   return result.recordset;
 }
 

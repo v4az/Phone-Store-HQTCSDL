@@ -9,7 +9,13 @@ export async function getBrands(): Promise<Brand[]> {
   const pool = await getPool();
   const result = await pool
     .request()
-    .query("SELECT * FROM Brand WHERE IsActive = 1 ORDER BY BrandName");
+    .query(`
+      SELECT MIN(BrandId) as BrandId, BrandName, MIN(Country) as Country, CAST(1 AS BIT) as IsActive
+      FROM Brand 
+      WHERE IsActive = 1 
+      GROUP BY BrandName 
+      ORDER BY BrandName
+    `);
   return result.recordset;
 }
 

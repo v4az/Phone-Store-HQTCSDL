@@ -41,10 +41,19 @@ export async function POST(request: NextRequest) {
         IsActive: v.IsActive ?? true
       })) ?? [];
 
+    if (productData.WarrantyMonths < 0) {
+      return NextResponse.json({ error: "WarrantyMonths cannot be negative" }, { status: 400 });
+    }
+    for (const v of variantData) {
+      if (v.CostPrice < 0 || v.RetailPrice < 0) {
+        return NextResponse.json({ error: "Prices cannot be negative" }, { status: 400 });
+      }
+    }
+
     const createdProduct = await createProduct(productData, variantData);
 
     return NextResponse.json(createdProduct, { status: 201 });
-  } catch (error: unknown) {
-    return NextResponse.json({ error: "Failed to create product" }, { status: 500 });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message || "Failed to create product" }, { status: 500 });
   }
 }

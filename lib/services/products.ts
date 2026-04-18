@@ -337,12 +337,11 @@ export async function updateProduct(
     }
 
     // Only update Product table fields that live in Product
-    // Guard: AND IsActive = 1 prevents updating a soft-deleted product (dirty write prevention)
     const query = `
       UPDATE Product
       SET ${sets.filter(s => !s.includes("b.BrandName") && !s.includes("c.CategoryName")).join(", ")}
       OUTPUT INSERTED.*
-      WHERE ProductId = @productId AND IsActive = 1
+      WHERE ProductId = @productId
     `;
 
     const result = await request.query(query);

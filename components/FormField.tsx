@@ -32,7 +32,7 @@ export default function FormField({
     switch (fieldType) {
       case "number":
         return (
-          <InputNumber
+          <Input
             placeholder={placeholder}
             style={{ width: "100%" }}
           />
