@@ -1,11 +1,16 @@
 // /app/api/products/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
-import { getProducts, createProduct } from "@/lib/services";
+import { getProducts, getProductsWithVariants, createProduct } from "@/lib/services";
 import { Product, ProductVariant } from "@/lib/types";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const include = request.nextUrl.searchParams.get("include");
+    if (include === "variants") {
+      const products = await getProductsWithVariants();
+      return NextResponse.json(products);
+    }
     const products = await getProducts();
     return NextResponse.json(products);
   } catch (error: unknown) {

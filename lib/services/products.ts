@@ -47,6 +47,64 @@ export async function getProducts(): Promise<Omit<Product, "Variants">[]> {
 }
 
 /**
+ * Fetch all active products with their variants (for sale form dropdown).
+ * Groups flat rows into Product -> Variants[] structure.
+ */
+export async function getProductsWithVariants(): Promise<Product[]> {
+  const pool = await getPool();
+  const result = await pool.request().query(`
+    SELECT
+      p.ProductId, p.ProductCode, p.ProductName,
+      p.BrandId, p.CategoryId, p.WarrantyMonths, p.Description, p.IsActive,
+      b.BrandName, c.CategoryName,
+      pv.VariantId, pv.Sku, pv.Color, pv.Storage,
+      pv.CostPrice, pv.RetailPrice, pv.IsActive AS VariantIsActive
+    FROM Product p
+    LEFT JOIN Brand b ON p.BrandId = b.BrandId
+    LEFT JOIN Category c ON p.CategoryId = c.CategoryId
+    LEFT JOIN ProductVariant pv ON p.ProductId = pv.ProductId AND pv.IsActive = 1
+    WHERE p.IsActive = 1
+    ORDER BY p.ProductName, pv.Sku
+  `);
+
+  const productMap = new Map<number, Product>();
+
+  for (const row of result.recordset) {
+    if (!productMap.has(row.ProductId)) {
+      productMap.set(row.ProductId, {
+        ProductId: row.ProductId,
+        ProductCode: row.ProductCode || "",
+        ProductName: row.ProductName,
+        BrandId: row.BrandId,
+        BrandName: row.BrandName || "",
+        CategoryId: row.CategoryId,
+        CategoryName: row.CategoryName || "",
+        WarrantyMonths: row.WarrantyMonths || 0,
+        Description: row.Description || null,
+        IsActive: true,
+        Variants: [],
+      });
+    }
+    if (row.VariantId !== null) {
+      productMap.get(row.ProductId)!.Variants.push({
+        VariantId: row.VariantId,
+        ProductId: row.ProductId,
+        Sku: row.Sku || "",
+        Color: row.Color || null,
+        Storage: row.Storage || null,
+        OtherAttributes: null,
+        ImageUrl: null,
+        CostPrice: row.CostPrice || 0,
+        RetailPrice: row.RetailPrice || 0,
+        IsActive: true,
+      });
+    }
+  }
+
+  return Array.from(productMap.values());
+}
+
+/**
  * Create a new product with optional variants in a transaction
  *
  * - `product` contains product fields (no Variants)

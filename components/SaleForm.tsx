@@ -21,7 +21,7 @@ export default function SaleForm() {
 
   useEffect(() => {
     async function fetchProducts() {
-      const res = await fetch("/api/products");
+      const res = await fetch("/api/products?include=variants");
       if (res.ok) setProducts(await res.json());
     }
     fetchProducts();
