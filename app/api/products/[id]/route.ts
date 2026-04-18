@@ -30,7 +30,7 @@ export async function GET(
     }
 
     return NextResponse.json(product);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("GET /api/products/[id] error:", error);
     return NextResponse.json(
       { error: "Failed to load product" },
@@ -77,7 +77,7 @@ export async function PATCH(
     }
 
     return NextResponse.json(updatedProduct);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("PATCH /api/products/[id] error:", error);
     return NextResponse.json(
       { error: "Failed to update product" },
@@ -112,7 +112,7 @@ export async function DELETE(
     }
 
     return NextResponse.json({ success: true }, { status: 200 });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("DELETE /api/products/[id] error:", error);
     return NextResponse.json(
       { error: "Failed to delete product" },

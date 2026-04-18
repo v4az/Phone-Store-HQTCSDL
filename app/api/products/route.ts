@@ -8,7 +8,7 @@ export async function GET() {
   try {
     const products = await getProducts();
     return NextResponse.json(products);
-  } catch (error: any) {
+  } catch (error: unknown) {
     return NextResponse.json({ error: "Failed to load products" }, { status: 500 });
   }
 }
@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     };
 
     const variantData: Omit<ProductVariant, "VariantId" | "ProductId">[] =
-      body.Variants?.map((v: any) => ({
+      body.Variants?.map((v: Omit<ProductVariant, "VariantId" | "ProductId">) => ({
         Sku: v.Sku,
         Color: v.Color,
         Storage: v.Storage,
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
     const createdProduct = await createProduct(productData, variantData);
 
     return NextResponse.json(createdProduct, { status: 201 });
-  } catch (error: any) {
+  } catch (error: unknown) {
     return NextResponse.json({ error: "Failed to create product" }, { status: 500 });
   }
 }
