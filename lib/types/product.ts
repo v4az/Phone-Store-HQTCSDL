@@ -12,6 +12,8 @@ export interface ProductVariant {
   CostPrice: number;
   RetailPrice: number;
   IsActive: boolean;
+  QuantityOnHand?: number;
+  QuantityReserved?: number;
 }
 
 export interface Product {

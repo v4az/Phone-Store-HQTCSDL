@@ -1,7 +1,7 @@
 // app/api/products/[id]/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
-import { getProductById, updateProduct } from "@/lib/services";
+import { getProductById, updateProduct, updateInventoryStock } from "@/lib/services";
 import { Product } from "@/lib/types";
 
 // GET /api/products/[id]
@@ -78,6 +78,19 @@ export async function PATCH(
         { error: "Product not found" },
         { status: 404 }
       );
+    }
+
+    // Update inventory quantities if provided
+    if (Array.isArray(body.InventoryUpdates) && body.InventoryUpdates.length > 0) {
+      const inventoryUpdates = body.InventoryUpdates
+        .filter((u: { VariantId: number; QuantityOnHand: number }) =>
+          u.VariantId && u.QuantityOnHand >= 0
+        )
+        .map((u: { VariantId: number; QuantityOnHand: number }) => ({
+          VariantId: u.VariantId,
+          QuantityOnHand: u.QuantityOnHand,
+        }));
+      await updateInventoryStock(inventoryUpdates);
     }
 
     return NextResponse.json(updatedProduct);

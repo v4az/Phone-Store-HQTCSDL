@@ -54,7 +54,7 @@ export async function getProducts(): Promise<Omit<Product, "Variants">[]> {
  */
 export async function createProduct(
   product: Omit<Product, "ProductId" | "Variants">,
-  variants?: Omit<ProductVariant, "VariantId" | "ProductId">[]
+  variants?: (Omit<ProductVariant, "VariantId" | "ProductId"> & { QuantityOnHand?: number })[]
 ): Promise<Product> {
   const pool = await getPool();
   const transaction = new sql.Transaction(pool);
@@ -115,15 +115,16 @@ export async function createProduct(
               (@productId, @sku, @color, @storage, @otherAttributes, @imageUrl, @costPrice, @retailPrice, @isActive)
           `);
 
-        // Auto-create inventory stock row with 0 quantity
+        // Auto-create inventory stock row with initial quantity
         const newVariantId = variantResult.recordset[0].VariantId;
         await transaction
           .request()
           .input("variantId", sql.Int, newVariantId)
           .input("locationId", sql.Int, defaultLocationId)
+          .input("quantityOnHand", sql.Int, variant.QuantityOnHand ?? 0)
           .query(`
             INSERT INTO InventoryStock (VariantId, LocationId, QuantityOnHand, QuantityReserved)
-            VALUES (@variantId, @locationId, 0, 0)
+            VALUES (@variantId, @locationId, @quantityOnHand, 0)
           `);
       }
     }
@@ -164,11 +165,14 @@ export async function getProductById(productId: number): Promise<Product | null>
         pv.ImageUrl,
         pv.CostPrice,
         pv.RetailPrice,
-        pv.IsActive AS VariantIsActive
+        pv.IsActive AS VariantIsActive,
+        is_stk.QuantityOnHand,
+        is_stk.QuantityReserved
       FROM Product p
       LEFT JOIN Brand b ON p.BrandId = b.BrandId
       LEFT JOIN Category c ON p.CategoryId = c.CategoryId
       LEFT JOIN ProductVariant pv ON p.ProductId = pv.ProductId
+      LEFT JOIN InventoryStock is_stk ON pv.VariantId = is_stk.VariantId
       WHERE p.ProductId = @productId
     `);
 
@@ -203,7 +207,9 @@ export async function getProductById(productId: number): Promise<Product | null>
         ImageUrl: row.ImageUrl || null,
         CostPrice: row.CostPrice || 0,
         RetailPrice: row.RetailPrice || 0,
-        IsActive: row.VariantIsActive !== undefined ? row.VariantIsActive : true
+        IsActive: row.VariantIsActive !== undefined ? row.VariantIsActive : true,
+        QuantityOnHand: row.QuantityOnHand ?? 0,
+        QuantityReserved: row.QuantityReserved ?? 0,
       });
     }
   }
@@ -375,6 +381,40 @@ export async function updateProduct(
     if (result.recordset.length === 0) return null;
 
     return result.recordset[0] as Product;
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
+}
+
+/**
+ * Update inventory quantities for multiple variants in a single transaction.
+ * Each entry maps VariantId -> new QuantityOnHand value.
+ */
+export async function updateInventoryStock(
+  updates: { VariantId: number; QuantityOnHand: number }[]
+): Promise<void> {
+  if (updates.length === 0) return;
+
+  const pool = await getPool();
+  const transaction = new sql.Transaction(pool);
+
+  try {
+    await transaction.begin();
+
+    for (const { VariantId, QuantityOnHand } of updates) {
+      await transaction
+        .request()
+        .input("variantId", sql.Int, VariantId)
+        .input("quantityOnHand", sql.Int, QuantityOnHand)
+        .query(`
+          UPDATE InventoryStock
+          SET QuantityOnHand = @quantityOnHand
+          WHERE VariantId = @variantId
+        `);
+    }
+
+    await transaction.commit();
   } catch (error) {
     await transaction.rollback();
     throw error;

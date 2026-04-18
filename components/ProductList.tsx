@@ -82,8 +82,18 @@ export default function ProductList() {
           <Button
             type="text"
             icon={<EditOutlined />}
-            onClick={() => {
-              setEditingProduct(record);
+            onClick={async () => {
+              // Fetch full product with variants and inventory
+              try {
+                const res = await fetch(`/api/products/${record.ProductId}`);
+                if (res.ok) {
+                  setEditingProduct(await res.json());
+                } else {
+                  setEditingProduct(record);
+                }
+              } catch {
+                setEditingProduct(record);
+              }
               setIsModalOpen(true);
             }}
           />

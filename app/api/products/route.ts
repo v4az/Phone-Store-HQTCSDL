@@ -29,8 +29,8 @@ export async function POST(request: NextRequest) {
       IsActive: body.IsActive ?? true
     };
 
-    const variantData: Omit<ProductVariant, "VariantId" | "ProductId">[] =
-      body.Variants?.map((v: Omit<ProductVariant, "VariantId" | "ProductId">) => ({
+    const variantData: (Omit<ProductVariant, "VariantId" | "ProductId"> & { QuantityOnHand?: number })[] =
+      body.Variants?.map((v: any) => ({
         Sku: v.Sku,
         Color: v.Color,
         Storage: v.Storage,
@@ -38,7 +38,8 @@ export async function POST(request: NextRequest) {
         ImageUrl: v.ImageUrl ?? null,
         CostPrice: v.CostPrice ?? 0,
         RetailPrice: v.RetailPrice ?? 0,
-        IsActive: v.IsActive ?? true
+        IsActive: v.IsActive ?? true,
+        QuantityOnHand: v.QuantityOnHand ?? 0,
       })) ?? [];
 
     if (productData.WarrantyMonths < 0) {

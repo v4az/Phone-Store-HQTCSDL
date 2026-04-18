@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Form, Button, Space, Divider, Row, Col, Card, App } from "antd";
+import { Form, Button, Space, Divider, Row, Col, Card, App, InputNumber, Typography } from "antd";
 import { MinusCircleOutlined, PlusOutlined } from "@ant-design/icons";
 import FormField from "./FormField";
 import type { Product } from "@/lib/types/product";
+
+const { Text } = Typography;
 
 interface ProductFormProps {
   initialData?: Product;
@@ -31,31 +33,58 @@ export default function ProductForm({ initialData, onSuccess, onCancel }: Produc
   const onFinish = async (values: any) => {
     setLoading(true);
     try {
-      // Find BrandName and CategoryName for backend structure if needed
       const brand = brands.find((b: any) => b.BrandId === values.BrandId) as any;
       const category = categories.find((c: any) => c.CategoryId === values.CategoryId) as any;
 
-      const payload = {
-        ...values,
-        BrandName: brand?.BrandName,
-        CategoryName: category?.CategoryName,
-      };
+      if (initialData) {
+        // Edit mode: update product info + inventory
+        const payload = {
+          ...values,
+          BrandName: brand?.BrandName,
+          CategoryName: category?.CategoryName,
+          // Send inventory updates for each variant
+          InventoryUpdates: initialData.Variants.map((v, i) => ({
+            VariantId: v.VariantId,
+            QuantityOnHand: values.Variants?.[i]?.QuantityOnHand ?? v.QuantityOnHand ?? 0,
+          })),
+        };
+        // Remove Variants from product update payload (variants aren't editable here)
+        delete payload.Variants;
 
-      const url = initialData ? `/api/products/${initialData.ProductId}` : "/api/products";
-      const method = initialData ? "PATCH" : "POST";
+        const res = await fetch(`/api/products/${initialData.ProductId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
 
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (res.ok) {
-        message.success(initialData ? "Cập nhật thành công" : "Thêm mới thành công");
-        onSuccess();
+        if (res.ok) {
+          message.success("Cập nhật thành công");
+          onSuccess();
+        } else {
+          const err = await res.json();
+          message.error(err.error || "Có lỗi xảy ra");
+        }
       } else {
-        const err = await res.json();
-        message.error(err.error || "Có lỗi xảy ra");
+        // Create mode: send product + variants with initial stock
+        const payload = {
+          ...values,
+          BrandName: brand?.BrandName,
+          CategoryName: category?.CategoryName,
+        };
+
+        const res = await fetch("/api/products", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (res.ok) {
+          message.success("Thêm mới thành công");
+          onSuccess();
+        } else {
+          const err = await res.json();
+          message.error(err.error || "Có lỗi xảy ra");
+        }
       }
     } catch (error) {
       console.error(error);
@@ -144,6 +173,7 @@ export default function ProductForm({ initialData, onSuccess, onCancel }: Produc
         fieldType="textarea"
       />
 
+      {/* Create mode: editable variant list with initial stock */}
       {!initialData && (
         <>
           <Divider>Phiên bản (Biến thể)</Divider>
@@ -177,7 +207,7 @@ export default function ProductForm({ initialData, onSuccess, onCancel }: Produc
                       </Col>
                     </Row>
                     <Row gutter={16}>
-                      <Col span={12}>
+                      <Col span={8}>
                         <FormField
                           {...restField}
                           name={[name, "CostPrice"]}
@@ -189,7 +219,7 @@ export default function ProductForm({ initialData, onSuccess, onCancel }: Produc
                           ]}
                         />
                       </Col>
-                      <Col span={12}>
+                      <Col span={8}>
                         <FormField
                           {...restField}
                           name={[name, "RetailPrice"]}
@@ -200,6 +230,16 @@ export default function ProductForm({ initialData, onSuccess, onCancel }: Produc
                             { pattern: /^\d+(\.\d+)?$/, message: "Phải là số >= 0" }
                           ]}
                         />
+                      </Col>
+                      <Col span={8}>
+                        <Form.Item
+                          {...restField}
+                          name={[name, "QuantityOnHand"]}
+                          label="Tồn kho ban đầu"
+                          initialValue={0}
+                        >
+                          <InputNumber min={0} style={{ width: "100%" }} />
+                        </Form.Item>
                       </Col>
                     </Row>
                     {fields.length > 1 && (
@@ -226,6 +266,42 @@ export default function ProductForm({ initialData, onSuccess, onCancel }: Produc
               </>
             )}
           </Form.List>
+        </>
+      )}
+
+      {/* Edit mode: show existing variants with editable inventory */}
+      {initialData && initialData.Variants.length > 0 && (
+        <>
+          <Divider>Tồn kho theo phiên bản</Divider>
+          {initialData.Variants.map((variant, index) => (
+            <Card size="small" key={variant.VariantId} style={{ marginBottom: 12 }}>
+              <Row gutter={16} align="middle">
+                <Col span={6}>
+                  <Text strong>SKU:</Text> {variant.Sku}
+                </Col>
+                <Col span={4}>
+                  <Text type="secondary">{variant.Color || "—"}</Text>
+                </Col>
+                <Col span={4}>
+                  <Text type="secondary">{variant.Storage || "—"}</Text>
+                </Col>
+                <Col span={4}>
+                  <Text type="secondary">
+                    Đã đặt: {variant.QuantityReserved ?? 0}
+                  </Text>
+                </Col>
+                <Col span={6}>
+                  <Form.Item
+                    name={["Variants", index, "QuantityOnHand"]}
+                    label="Tồn kho"
+                    style={{ marginBottom: 0 }}
+                  >
+                    <InputNumber min={0} style={{ width: "100%" }} />
+                  </Form.Item>
+                </Col>
+              </Row>
+            </Card>
+          ))}
         </>
       )}
 
