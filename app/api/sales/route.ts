@@ -3,13 +3,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getInvoices, createInvoice } from "@/lib/services";
 import { SalesInvoice, SalesInvoiceLine } from "@/lib/types";
+import { InsufficientStockError } from "@/lib/errors";
 
 // GET /api/sales
 export async function GET() {
   try {
     const invoices = await getInvoices();
     return NextResponse.json(invoices);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("GET /api/sales error:", error);
     return NextResponse.json(
       { error: "Failed to load invoices" },
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest) {
       DiscountAmount: body.DiscountAmount ?? 0,
       FinalAmount: body.FinalAmount ?? 0,
       CreatedBy: body.CreatedBy ?? null,
-      Lines: body.Lines?.map((l: any) => ({
+      Lines: body.Lines?.map((l: Omit<SalesInvoiceLine, "InvoiceId">) => ({
         LineNo: l.LineNo,
         VariantId: l.VariantId,
         Quantity: l.Quantity ?? 0,
@@ -43,10 +44,24 @@ export async function POST(request: NextRequest) {
       })) ?? []
     };
 
-    const createdInvoice = await createInvoice(invoiceData);
+    const locationId = body.LocationId ?? 1;
+    const createdInvoice = await createInvoice(invoiceData, locationId);
 
     return NextResponse.json(createdInvoice, { status: 201 });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    // Insufficient stock → 409 Conflict
+    if (error instanceof InsufficientStockError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          variantId: error.variantId,
+          requestedQty: error.requestedQty,
+          locationId: error.locationId
+        },
+        { status: 409 }
+      );
+    }
+
     console.error("POST /api/sales error:", error);
     return NextResponse.json(
       { error: "Failed to create invoice" },

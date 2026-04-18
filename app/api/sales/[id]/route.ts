@@ -23,7 +23,7 @@ export async function GET(
     }
 
     return NextResponse.json(invoice);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("GET /api/sales/[id] error:", error);
     return NextResponse.json({ error: "Failed to load invoice" }, { status: 500 });
   }
@@ -60,7 +60,7 @@ export async function PUT(
     }
 
     return NextResponse.json(updatedInvoice);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("PUT /api/sales/[id] error:", error);
     return NextResponse.json({ error: "Failed to update invoice" }, { status: 500 });
   }

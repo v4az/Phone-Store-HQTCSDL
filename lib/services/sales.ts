@@ -1,6 +1,7 @@
 import { getPool } from "@/lib/db";
 import sql from "mssql";
 import { Customer, SalesInvoice, SalesInvoiceLine } from "@/lib/types";
+import { InsufficientStockError } from "@/lib/errors";
 
 /**
  * Fetch all invoices (with customer info if needed)
@@ -107,10 +108,18 @@ export async function getInvoiceById(
 }
 
 /**
- * Create a new sales invoice with header + line items in a transaction
+ * Create a new sales invoice with header + line items in a transaction.
+ *
+ * Concurrency protections:
+ * - Non-Repeatable Read: reads RetailPrice WITH (UPDLOCK) — price can't change during the transaction
+ * - Lost Update: atomic stock deduction (QuantityOnHand = QuantityOnHand - @qty WHERE QuantityOnHand >= @qty)
+ * - Dirty Write: all operations in a single transaction — rollback is safe
+ *
+ * @param locationId - inventory location to deduct stock from (default: 1)
  */
 export async function createInvoice(
-  invoice: Omit<SalesInvoice, "InvoiceId"> & { Lines: Omit<SalesInvoiceLine, "InvoiceId">[] }
+  invoice: Omit<SalesInvoice, "InvoiceId"> & { Lines: Omit<SalesInvoiceLine, "InvoiceId">[] },
+  locationId: number = 1
 ): Promise<SalesInvoice> {
   const pool = await getPool();
   const transaction = new sql.Transaction(pool);
@@ -118,15 +127,79 @@ export async function createInvoice(
   try {
     await transaction.begin();
 
-    // Insert invoice header
+    // === Phase 1: Validate lines, lock prices, deduct stock ===
+    const verifiedLines: {
+      LineNo: number;
+      VariantId: number;
+      Quantity: number;
+      UnitPrice: number;
+      DiscountPct: number;
+      LineTotal: number;
+    }[] = [];
+
+    for (const line of invoice.Lines) {
+      // Read authoritative price WITH (UPDLOCK) — prevents Non-Repeatable Read.
+      // The lock ensures no one can change RetailPrice until this transaction commits.
+      const priceResult = await transaction
+        .request()
+        .input("variantId", sql.Int, line.VariantId)
+        .query(`
+          SELECT RetailPrice FROM ProductVariant WITH (UPDLOCK)
+          WHERE VariantId = @variantId AND IsActive = 1
+        `);
+
+      if (priceResult.recordset.length === 0) {
+        throw new Error(`Variant ${line.VariantId} not found or inactive`);
+      }
+
+      const dbPrice: number = priceResult.recordset[0].RetailPrice;
+      const discountPct = line.DiscountPct ?? 0;
+      const lineTotal = dbPrice * line.Quantity * (1 - discountPct / 100);
+
+      // Atomic stock deduction — prevents Lost Update.
+      // The WHERE clause (QuantityOnHand >= @qty) is the guard:
+      // if two sales race, both use the *current* DB value (not a stale read).
+      const stockResult = await transaction
+        .request()
+        .input("variantId", sql.Int, line.VariantId)
+        .input("locationId", sql.Int, locationId)
+        .input("qty", sql.Int, line.Quantity)
+        .query(`
+          UPDATE InventoryStock
+          SET QuantityOnHand = QuantityOnHand - @qty
+          WHERE VariantId = @variantId
+            AND LocationId = @locationId
+            AND QuantityOnHand >= @qty
+        `);
+
+      if (stockResult.rowsAffected[0] === 0) {
+        throw new InsufficientStockError(line.VariantId, line.Quantity, locationId);
+      }
+
+      verifiedLines.push({
+        LineNo: line.LineNo,
+        VariantId: line.VariantId,
+        Quantity: line.Quantity,
+        UnitPrice: dbPrice,
+        DiscountPct: discountPct,
+        LineTotal: lineTotal,
+      });
+    }
+
+    // === Phase 2: Recalculate totals from verified data ===
+    const totalAmount = verifiedLines.reduce((sum, l) => sum + l.LineTotal, 0);
+    const discountAmount = invoice.DiscountAmount ?? 0;
+    const finalAmount = totalAmount - discountAmount;
+
+    // === Phase 3: Insert invoice header ===
     const headerResult = await transaction
       .request()
       .input("invoiceCode", sql.NVarChar(50), invoice.InvoiceCode)
       .input("customerId", sql.Int, invoice.CustomerId)
       .input("invoiceDate", sql.DateTime2, invoice.InvoiceDate)
-      .input("totalAmount", sql.Decimal(18, 2), invoice.TotalAmount)
-      .input("discountAmount", sql.Decimal(18, 2), invoice.DiscountAmount)
-      .input("finalAmount", sql.Decimal(18, 2), invoice.FinalAmount)
+      .input("totalAmount", sql.Decimal(18, 2), totalAmount)
+      .input("discountAmount", sql.Decimal(18, 2), discountAmount)
+      .input("finalAmount", sql.Decimal(18, 2), finalAmount)
       .input("createdBy", sql.NVarChar(100), invoice.CreatedBy ?? null)
       .query(`
         INSERT INTO SalesInvoice (
@@ -152,40 +225,38 @@ export async function createInvoice(
 
     const newInvoice = headerResult.recordset[0] as SalesInvoice;
 
-    // Insert lines (attach InvoiceId from the header)
-    if (invoice.Lines && invoice.Lines.length > 0) {
-      const lineRequest = transaction.request();
-      lineRequest.input("invoiceId", sql.Int, newInvoice.InvoiceId);
-
-      for (const line of invoice.Lines) {
-        await lineRequest
-          .input("lineNo", sql.Int, line.LineNo)
-          .input("variantId", sql.Int, line.VariantId)
-          .input("quantity", sql.Int, line.Quantity)
-          .input("unitPrice", sql.Decimal(18, 2), line.UnitPrice)
-          .input("discountPct", sql.Decimal(18, 2), line.DiscountPct)
-          .input("lineTotal", sql.Decimal(18, 2), line.LineTotal)
-          .query(`
-            INSERT INTO SalesInvoiceLine (
-              InvoiceId,
-              LineNo,
-              VariantId,
-              Quantity,
-              UnitPrice,
-              DiscountPct,
-              LineTotal
-            )
-            VALUES (
-              @invoiceId,
-              @lineNo,
-              @variantId,
-              @quantity,
-              @unitPrice,
-              @discountPct,
-              @lineTotal
-            )
-          `);
-      }
+    // === Phase 4: Insert line items ===
+    // Each line gets its own request to avoid duplicate parameter names (bug fix).
+    for (const line of verifiedLines) {
+      await transaction
+        .request()
+        .input("invoiceId", sql.Int, newInvoice.InvoiceId)
+        .input("lineNo", sql.Int, line.LineNo)
+        .input("variantId", sql.Int, line.VariantId)
+        .input("quantity", sql.Int, line.Quantity)
+        .input("unitPrice", sql.Decimal(18, 2), line.UnitPrice)
+        .input("discountPct", sql.Decimal(18, 2), line.DiscountPct)
+        .input("lineTotal", sql.Decimal(18, 2), line.LineTotal)
+        .query(`
+          INSERT INTO SalesInvoiceLine (
+            InvoiceId,
+            LineNo,
+            VariantId,
+            Quantity,
+            UnitPrice,
+            DiscountPct,
+            LineTotal
+          )
+          VALUES (
+            @invoiceId,
+            @lineNo,
+            @variantId,
+            @quantity,
+            @unitPrice,
+            @discountPct,
+            @lineTotal
+          )
+        `);
     }
 
     await transaction.commit();
