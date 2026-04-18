@@ -28,16 +28,17 @@ export default function SaleForm() {
     fetchProducts();
   }, []);
 
-  // Build options for product variants with available stock
+  // Build options for product variants — only show variants with stock > 0
   const variantOptions = products.flatMap((p: any) =>
-    p.Variants.map((v: any) => ({
-      label: `${p.ProductName} - ${v.Color || ''} ${v.Storage || ''} [SKU: ${v.Sku}] (Kho: ${v.QuantityOnHand ?? 0})`,
-      value: v.VariantId,
-      price: v.RetailPrice,
-      productName: p.ProductName,
-      available: v.QuantityOnHand ?? 0,
-      disabled: (v.QuantityOnHand ?? 0) <= 0,
-    }))
+    p.Variants
+      .filter((v: any) => (v.QuantityOnHand ?? 0) > 0)
+      .map((v: any) => ({
+        label: `${p.ProductName} - ${v.Color || ''} ${v.Storage || ''} [SKU: ${v.Sku}] (Kho: ${v.QuantityOnHand})`,
+        value: v.VariantId,
+        price: v.RetailPrice,
+        productName: p.ProductName,
+        available: v.QuantityOnHand,
+      }))
   );
 
   const calculateTotals = () => {
