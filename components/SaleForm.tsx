@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Form, Button, Card, Row, Col, Typography, message, Select, InputNumber, Divider, Input } from "antd";
+import { Form, Button, Card, Row, Col, Typography, App, Select, InputNumber, Divider, Input } from "antd";
 import { PlusOutlined, DeleteOutlined } from "@ant-design/icons";
 import { useRouter } from "next/navigation";
 import FormField from "./FormField";
@@ -9,6 +9,7 @@ import FormField from "./FormField";
 const { Title, Text } = Typography;
 
 export default function SaleForm() {
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const router = useRouter();
   const [loading, setLoading] = useState(false);

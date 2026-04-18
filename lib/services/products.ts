@@ -82,8 +82,21 @@ export async function createProduct(
     const newProduct = productResult.recordset[0] as Product;
 
     if (variants && variants.length > 0) {
+      // Ensure a default inventory location exists
+      const locationResult = await transaction
+        .request()
+        .query(`
+          IF NOT EXISTS (SELECT 1 FROM InventoryLocation)
+            INSERT INTO InventoryLocation (LocationName, Address)
+            OUTPUT INSERTED.LocationId
+            VALUES (N'Main Store', N'Default location')
+          ELSE
+            SELECT TOP 1 LocationId FROM InventoryLocation ORDER BY LocationId
+        `);
+      const defaultLocationId = locationResult.recordset[0].LocationId;
+
       for (const variant of variants) {
-        await transaction
+        const variantResult = await transaction
           .request()
           .input("productId", sql.Int, newProduct.ProductId)
           .input("sku", sql.NVarChar(50), variant.Sku)
@@ -97,8 +110,20 @@ export async function createProduct(
           .query(`
             INSERT INTO ProductVariant
               (ProductId, Sku, Color, Storage, OtherAttributes, ImageUrl, CostPrice, RetailPrice, IsActive)
+            OUTPUT INSERTED.VariantId
             VALUES
               (@productId, @sku, @color, @storage, @otherAttributes, @imageUrl, @costPrice, @retailPrice, @isActive)
+          `);
+
+        // Auto-create inventory stock row with 0 quantity
+        const newVariantId = variantResult.recordset[0].VariantId;
+        await transaction
+          .request()
+          .input("variantId", sql.Int, newVariantId)
+          .input("locationId", sql.Int, defaultLocationId)
+          .query(`
+            INSERT INTO InventoryStock (VariantId, LocationId, QuantityOnHand, QuantityReserved)
+            VALUES (@variantId, @locationId, 0, 0)
           `);
       }
     }

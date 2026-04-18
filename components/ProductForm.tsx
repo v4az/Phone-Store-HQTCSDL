@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Form, Button, Space, Divider, Row, Col, message, Card } from "antd";
+import { Form, Button, Space, Divider, Row, Col, Card, App } from "antd";
 import { MinusCircleOutlined, PlusOutlined } from "@ant-design/icons";
 import FormField from "./FormField";
 import type { Product } from "@/lib/types/product";
@@ -13,6 +13,7 @@ interface ProductFormProps {
 }
 
 export default function ProductForm({ initialData, onSuccess, onCancel }: ProductFormProps) {
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [brands, setBrands] = useState([]);

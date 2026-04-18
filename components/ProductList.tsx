@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Card, Button, Space, Tag, Modal, message } from "antd";
+import { Card, Button, Space, Tag, Modal, App } from "antd";
 import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import DataTable from "./DataTable";
 import ProductForm from "./ProductForm";
 import type { Product } from "@/lib/types/product";
 
 export default function ProductList() {
+  const { message } = App.useApp();
   const [data, setData] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);

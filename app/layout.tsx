@@ -22,7 +22,7 @@ export const metadata: Metadata = {
   description: "Inventory and sales management for phone & accessories shop",
 };
 
-import { ConfigProvider } from "antd";
+import { ConfigProvider, App } from "antd";
 
 export default function RootLayout({
   children,
@@ -37,7 +37,9 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col m-0 p-0">
         <AntdRegistry>
           <ConfigProvider theme={{ token: { motion: false } }}>
-            <AppShell>{children}</AppShell>
+            <App>
+              <AppShell>{children}</AppShell>
+            </App>
           </ConfigProvider>
         </AntdRegistry>
       </body>
