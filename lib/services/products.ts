@@ -143,20 +143,18 @@ export async function createProduct(
     const newProduct = productResult.recordset[0] as Product;
 
     if (variants && variants.length > 0) {
-      // Ensure a default inventory location exists
-      const locationResult = await transaction
+      // Ensure a default inventory location exists (trigger needs at least one)
+      await transaction
         .request()
         .query(`
           IF NOT EXISTS (SELECT 1 FROM InventoryLocation)
             INSERT INTO InventoryLocation (LocationName, Address)
-            OUTPUT INSERTED.LocationId
             VALUES (N'Main Store', N'Default location')
-          ELSE
-            SELECT TOP 1 LocationId FROM InventoryLocation ORDER BY LocationId
         `);
-      const defaultLocationId = locationResult.recordset[0].LocationId;
 
       for (const variant of variants) {
+        // Use SCOPE_IDENTITY() instead of OUTPUT to avoid trigger conflict
+        // (TR_ProductVariant_AfterInsert blocks OUTPUT without INTO clause)
         const variantResult = await transaction
           .request()
           .input("productId", sql.Int, newProduct.ProductId)
@@ -171,22 +169,25 @@ export async function createProduct(
           .query(`
             INSERT INTO ProductVariant
               (ProductId, Sku, Color, Storage, OtherAttributes, ImageUrl, CostPrice, RetailPrice, IsActive)
-            OUTPUT INSERTED.VariantId
             VALUES
-              (@productId, @sku, @color, @storage, @otherAttributes, @imageUrl, @costPrice, @retailPrice, @isActive)
+              (@productId, @sku, @color, @storage, @otherAttributes, @imageUrl, @costPrice, @retailPrice, @isActive);
+            SELECT SCOPE_IDENTITY() AS VariantId;
           `);
 
-        // Auto-create inventory stock row with initial quantity
+        // Trigger auto-creates InventoryStock with qty 0 — update if initial qty provided
         const newVariantId = variantResult.recordset[0].VariantId;
-        await transaction
-          .request()
-          .input("variantId", sql.Int, newVariantId)
-          .input("locationId", sql.Int, defaultLocationId)
-          .input("quantityOnHand", sql.Int, variant.QuantityOnHand ?? 0)
-          .query(`
-            INSERT INTO InventoryStock (VariantId, LocationId, QuantityOnHand, QuantityReserved)
-            VALUES (@variantId, @locationId, @quantityOnHand, 0)
-          `);
+        const initialQty = variant.QuantityOnHand ?? 0;
+        if (initialQty > 0) {
+          await transaction
+            .request()
+            .input("variantId", sql.Int, newVariantId)
+            .input("quantityOnHand", sql.Int, initialQty)
+            .query(`
+              UPDATE InventoryStock
+              SET QuantityOnHand = @quantityOnHand
+              WHERE VariantId = @variantId
+            `);
+        }
       }
     }
 

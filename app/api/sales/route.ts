@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
 
     console.error("POST /api/sales error:", error);
     return NextResponse.json(
-      { error: error.message || "Failed to create invoice" },
+      { error: "Không thể tạo đơn hàng" },
       { status: 500 }
     );
   }

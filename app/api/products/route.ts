@@ -59,7 +59,8 @@ export async function POST(request: NextRequest) {
     const createdProduct = await createProduct(productData, variantData);
 
     return NextResponse.json(createdProduct, { status: 201 });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message || "Failed to create product" }, { status: 500 });
+  } catch (error: unknown) {
+    console.error("POST /api/products error:", error);
+    return NextResponse.json({ error: "Không thể tạo sản phẩm" }, { status: 500 });
   }
 }

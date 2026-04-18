@@ -94,10 +94,10 @@ export async function PATCH(
     }
 
     return NextResponse.json(updatedProduct);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("PATCH /api/products/[id] error:", error);
     return NextResponse.json(
-      { error: error.message || "Failed to update product" },
+      { error: "Không thể cập nhật sản phẩm" },
       { status: 500 }
     );
   }
