@@ -16,3 +16,6 @@ JOIN Customer c ON si.CustomerId = c.CustomerId;
 
 -- Drop CustomerId column
 ALTER TABLE SalesInvoice DROP COLUMN CustomerId;
+
+-- Drop Customer table (no longer needed)
+DROP TABLE Customer;
