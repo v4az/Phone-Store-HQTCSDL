@@ -53,6 +53,12 @@ export default function SalesTable() {
       render: (text: string) => <strong>{text}</strong>,
     },
     {
+      title: "Khách hàng",
+      key: "CustomerName",
+      render: (_: unknown, record: SalesInvoice) =>
+        record.CustomerName || "Khách lẻ",
+    },
+    {
       title: "Ngày lập",
       dataIndex: "InvoiceDate",
       key: "InvoiceDate",
@@ -136,8 +142,8 @@ export default function SalesTable() {
         columns={columns}
         dataSource={data}
         loading={loading}
-        searchFields={["InvoiceCode"]}
-        searchPlaceholder="Tìm mã hóa đơn..."
+        searchFields={["InvoiceCode", "CustomerName"]}
+        searchPlaceholder="Tìm mã hóa đơn, tên khách..."
       />
 
       <Modal
@@ -155,6 +161,12 @@ export default function SalesTable() {
               <Descriptions.Item label="Mã hóa đơn">{detail.InvoiceCode}</Descriptions.Item>
               <Descriptions.Item label="Ngày lập">
                 {new Date(detail.InvoiceDate).toLocaleString("vi-VN")}
+              </Descriptions.Item>
+              <Descriptions.Item label="Khách hàng">
+                {detail.CustomerName || "Khách lẻ"}
+              </Descriptions.Item>
+              <Descriptions.Item label="SĐT">
+                {detail.CustomerPhone || "—"}
               </Descriptions.Item>
               <Descriptions.Item label="Tổng tiền">{formatter.format(detail.TotalAmount)}</Descriptions.Item>
               <Descriptions.Item label="Giảm giá">{formatter.format(detail.DiscountAmount)}</Descriptions.Item>

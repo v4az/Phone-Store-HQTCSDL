@@ -1,7 +1,7 @@
 // app/api/sales/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
-import { getInvoices, createInvoice } from "@/lib/services";
+import { getInvoices, createInvoice, findOrCreateCustomer } from "@/lib/services";
 import { SalesInvoice, SalesInvoiceLine } from "@/lib/types";
 import { InsufficientStockError } from "@/lib/errors";
 
@@ -24,11 +24,20 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
+    // Resolve customer: find by phone or create new
+    let customerId: number | null = body.CustomerId ?? null;
+    if (!customerId && body.CustomerName) {
+      customerId = await findOrCreateCustomer(
+        body.CustomerName,
+        body.CustomerPhone || null
+      );
+    }
+
     const invoiceData: Omit<SalesInvoice, "InvoiceId"> & {
       Lines: Omit<SalesInvoiceLine, "InvoiceId">[];
     } = {
       InvoiceCode: body.InvoiceCode,
-      CustomerId: body.CustomerId,
+      CustomerId: customerId,
       InvoiceDate: body.InvoiceDate,
       TotalAmount: body.TotalAmount ?? 0,
       DiscountAmount: body.DiscountAmount ?? 0,

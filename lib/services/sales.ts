@@ -4,7 +4,53 @@ import { Customer, SalesInvoice, SalesInvoiceLine } from "@/lib/types";
 import { InsufficientStockError } from "@/lib/errors";
 
 /**
- * Fetch all invoices (with customer info if needed)
+ * Find existing customer by phone or create a new one.
+ * Returns CustomerId.
+ */
+export async function findOrCreateCustomer(
+  name: string,
+  phone: string | null,
+  transaction?: sql.Transaction
+): Promise<number> {
+  const executor = transaction || await getPool();
+
+  // Try to find by phone first (if provided)
+  if (phone) {
+    const existing = await executor
+      .request()
+      .input("phone", sql.NVarChar(20), phone)
+      .query(`SELECT CustomerId, Name FROM Customer WHERE Phone = @phone`);
+
+    if (existing.recordset.length > 0) {
+      // Update name if changed
+      const customer = existing.recordset[0];
+      if (customer.Name !== name) {
+        await executor
+          .request()
+          .input("customerId", sql.Int, customer.CustomerId)
+          .input("name", sql.NVarChar(200), name)
+          .query(`UPDATE Customer SET Name = @name WHERE CustomerId = @customerId`);
+      }
+      return customer.CustomerId;
+    }
+  }
+
+  // Create new customer
+  const result = await executor
+    .request()
+    .input("name", sql.NVarChar(200), name)
+    .input("phone", sql.NVarChar(20), phone)
+    .query(`
+      INSERT INTO Customer (Name, Phone, IsActive)
+      OUTPUT INSERTED.CustomerId
+      VALUES (@name, @phone, 1)
+    `);
+
+  return result.recordset[0].CustomerId;
+}
+
+/**
+ * Fetch all invoices with customer name
  */
 export async function getInvoices(): Promise<SalesInvoice[]> {
   const pool = await getPool();
@@ -19,8 +65,11 @@ export async function getInvoices(): Promise<SalesInvoice[]> {
         si.TotalAmount,
         si.DiscountAmount,
         si.FinalAmount,
-        si.CreatedBy
+        si.CreatedBy,
+        c.Name AS CustomerName,
+        c.Phone AS CustomerPhone
       FROM SalesInvoice si
+      LEFT JOIN Customer c ON si.CustomerId = c.CustomerId
       ORDER BY si.InvoiceDate DESC
     `);
 
@@ -32,7 +81,9 @@ export async function getInvoices(): Promise<SalesInvoice[]> {
     TotalAmount: row.TotalAmount,
     DiscountAmount: row.DiscountAmount,
     FinalAmount: row.FinalAmount,
-    CreatedBy: row.CreatedBy || null
+    CreatedBy: row.CreatedBy || null,
+    CustomerName: row.CustomerName || null,
+    CustomerPhone: row.CustomerPhone || null,
   }));
 }
 
@@ -57,8 +108,11 @@ export async function getInvoiceById(
         si.TotalAmount,
         si.DiscountAmount,
         si.FinalAmount,
-        si.CreatedBy
+        si.CreatedBy,
+        c.Name AS CustomerName,
+        c.Phone AS CustomerPhone
       FROM SalesInvoice si
+      LEFT JOIN Customer c ON si.CustomerId = c.CustomerId
       WHERE si.InvoiceId = @invoiceId
     `);
 
@@ -113,6 +167,8 @@ export async function getInvoiceById(
     DiscountAmount: invoiceRow.DiscountAmount,
     FinalAmount: invoiceRow.FinalAmount,
     CreatedBy: invoiceRow.CreatedBy || null,
+    CustomerName: invoiceRow.CustomerName || null,
+    CustomerPhone: invoiceRow.CustomerPhone || null,
     Lines: lines,
   };
 }

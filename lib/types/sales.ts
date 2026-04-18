@@ -19,6 +19,9 @@ export interface SalesInvoice {
   FinalAmount: number;
   CreatedBy: string | null;
   Lines?: SalesInvoiceLine[];
+  // Joined fields for display
+  CustomerName?: string | null;
+  CustomerPhone?: string | null;
 }
 
 export interface SalesInvoiceLine {

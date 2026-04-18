@@ -102,7 +102,8 @@ export default function SaleForm() {
 
       const payload = {
         InvoiceCode: `INV-${Date.now()}`,
-        CustomerId: null, // Simple version: no customer management yet
+        CustomerName: values.CustomerName || null,
+        CustomerPhone: values.CustomerPhone || null,
         InvoiceDate: new Date().toISOString(),
         TotalAmount: total,
         DiscountAmount: invoiceDiscount,
@@ -246,6 +247,17 @@ export default function SaleForm() {
           
           <Col span={8}>
             <Card title="Thanh toán" size="small" style={{ background: "#fafafa" }}>
+              <FormField
+                name="CustomerName"
+                label="Tên khách hàng"
+                placeholder="Nhập tên khách (bỏ trống = khách lẻ)"
+              />
+              <FormField
+                name="CustomerPhone"
+                label="Số điện thoại"
+                placeholder="Nhập SĐT"
+              />
+              <Divider style={{ margin: "12px 0" }} />
               <FormField
                 name="DiscountAmount"
                 label="Giảm giá tổng đơn (VNĐ)"
