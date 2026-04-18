@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({ data });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("GET /api/reports error:", error);
     return NextResponse.json(
       { error: "Failed to load report" },

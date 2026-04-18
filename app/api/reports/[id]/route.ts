@@ -45,7 +45,7 @@ export async function GET(
     }
 
     return NextResponse.json({ data });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("GET /api/reports/[id] error:", error);
     return NextResponse.json(
       { error: "Failed to load report slice" },
