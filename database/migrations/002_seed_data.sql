@@ -1,5 +1,9 @@
 -- 002_seed_data.sql
--- Seed data: brands, categories, 10 products with variants
+-- Seed data: location, brands, categories, 10 products with variants, inventory
+
+-- Default inventory location (must exist before inventory stock rows)
+INSERT INTO InventoryLocation (LocationName, Address)
+VALUES (N'Main Store', N'Default location');
 
 -- Brands
 INSERT INTO Brand (BrandName, Country) VALUES (N'Apple', N'USA');
@@ -93,3 +97,13 @@ VALUES (N'ANK-USBC', N'Anker USB-C to USB-C Cable 1m', 5, 4, 12, N'Anker braided
 
 INSERT INTO ProductVariant (ProductId, Sku, Color, Storage, CostPrice, RetailPrice)
 VALUES (10, N'ANK-USBC-BLK', N'Black', NULL, 100000, 290000);
+
+-- Initialize inventory stock for all variants at the default location
+-- (Trigger in 004 handles future inserts, but seed data runs before trigger exists)
+INSERT INTO InventoryStock (VariantId, LocationId, QuantityOnHand, QuantityReserved)
+SELECT pv.VariantId, 1, 10, 0
+FROM ProductVariant pv
+WHERE NOT EXISTS (
+  SELECT 1 FROM InventoryStock ist
+  WHERE ist.VariantId = pv.VariantId AND ist.LocationId = 1
+);
