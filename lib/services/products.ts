@@ -196,14 +196,29 @@ export async function softDeleteProduct(productId: number): Promise<boolean> {
   try {
     await transaction.begin();
 
+    // UPDLOCK: lock the Product row to serialize against concurrent updateProduct()
+    // This prevents dirty write: if updateProduct() runs concurrently, it must wait
+    // until this transaction finishes — so it can't re-activate a product mid-delete.
+    const lockResult = await transaction
+      .request()
+      .input("productId", sql.Int, productId)
+      .query(`
+        SELECT ProductId FROM Product WITH (UPDLOCK)
+        WHERE ProductId = @productId
+      `);
+
+    if (lockResult.recordset.length === 0) {
+      await transaction.commit();
+      return false; // product doesn't exist
+    }
+
     // Soft delete product
-    const productResult = await transaction
+    await transaction
       .request()
       .input("productId", sql.Int, productId)
       .query(`
         UPDATE Product
         SET IsActive = 0
-        OUTPUT INSERTED.*
         WHERE ProductId = @productId
       `);
 
@@ -218,8 +233,7 @@ export async function softDeleteProduct(productId: number): Promise<boolean> {
       `);
 
     await transaction.commit();
-
-    return productResult.recordset.length > 0; // true if product existed
+    return true;
   } catch (error) {
     await transaction.rollback();
     throw error;
@@ -323,11 +337,12 @@ export async function updateProduct(
     }
 
     // Only update Product table fields that live in Product
+    // Guard: AND IsActive = 1 prevents updating a soft-deleted product (dirty write prevention)
     const query = `
       UPDATE Product
       SET ${sets.filter(s => !s.includes("b.BrandName") && !s.includes("c.CategoryName")).join(", ")}
       OUTPUT INSERTED.*
-      WHERE ProductId = @productId
+      WHERE ProductId = @productId AND IsActive = 1
     `;
 
     const result = await request.query(query);

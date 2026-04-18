@@ -53,37 +53,49 @@ export async function updateBrand(
   brand: Partial<Omit<Brand, "BrandId">>
 ): Promise<Brand | null> {
   const pool = await getPool();
-  const request = pool.request();
-  request.input("brandId", sql.Int, brandId);
+  const transaction = new sql.Transaction(pool);
 
-  const sets: string[] = [];
+  try {
+    await transaction.begin();
 
-  if (brand.BrandName !== undefined) {
-    request.input("brandName", sql.NVarChar(100), brand.BrandName);
-    sets.push("BrandName = @brandName");
+    const request = transaction.request();
+    request.input("brandId", sql.Int, brandId);
+
+    const sets: string[] = [];
+
+    if (brand.BrandName !== undefined) {
+      request.input("brandName", sql.NVarChar(100), brand.BrandName);
+      sets.push("BrandName = @brandName");
+    }
+    if (brand.Country !== undefined) {
+      request.input("country", sql.NVarChar(100), brand.Country);
+      sets.push("Country = @country");
+    }
+    if (brand.IsActive !== undefined) {
+      request.input("isActive", sql.Bit, brand.IsActive);
+      sets.push("IsActive = @isActive");
+    }
+
+    if (sets.length === 0) {
+      await transaction.commit();
+      return await getBrandById(brandId);
+    }
+
+    const query = `
+      UPDATE Brand
+      SET ${sets.join(", ")}
+      OUTPUT INSERTED.*
+      WHERE BrandId = @brandId
+    `;
+
+    const result = await request.query(query);
+    await transaction.commit();
+
+    return result.recordset.length > 0 ? result.recordset[0] : null;
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
   }
-  if (brand.Country !== undefined) {
-    request.input("country", sql.NVarChar(100), brand.Country);
-    sets.push("Country = @country");
-  }
-  if (brand.IsActive !== undefined) {
-    request.input("isActive", sql.Bit, brand.IsActive);
-    sets.push("IsActive = @isActive");
-  }
-
-  if (sets.length === 0) {
-    return await getBrandById(brandId);
-  }
-
-  const query = `
-    UPDATE Brand
-    SET ${sets.join(", ")}
-    OUTPUT INSERTED.*
-    WHERE BrandId = @brandId
-  `;
-
-  const result = await request.query(query);
-  return result.recordset.length > 0 ? result.recordset[0] : null;
 }
 
 /**

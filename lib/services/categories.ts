@@ -55,37 +55,49 @@ export async function updateCategory(
   category: Partial<Omit<Category, "CategoryId">>
 ): Promise<Category | null> {
   const pool = await getPool();
-  const request = pool.request();
-  request.input("categoryId", sql.Int, categoryId);
+  const transaction = new sql.Transaction(pool);
 
-  const sets: string[] = [];
+  try {
+    await transaction.begin();
 
-  if (category.CategoryName !== undefined) {
-    request.input("categoryName", sql.NVarChar(100), category.CategoryName);
-    sets.push("CategoryName = @categoryName");
+    const request = transaction.request();
+    request.input("categoryId", sql.Int, categoryId);
+
+    const sets: string[] = [];
+
+    if (category.CategoryName !== undefined) {
+      request.input("categoryName", sql.NVarChar(100), category.CategoryName);
+      sets.push("CategoryName = @categoryName");
+    }
+    if (category.ParentCategoryId !== undefined) {
+      request.input("parentCategoryId", sql.Int, category.ParentCategoryId);
+      sets.push("ParentCategoryId = @parentCategoryId");
+    }
+    if (category.IsActive !== undefined) {
+      request.input("isActive", sql.Bit, category.IsActive);
+      sets.push("IsActive = @isActive");
+    }
+
+    if (sets.length === 0) {
+      await transaction.commit();
+      return await getCategoryById(categoryId);
+    }
+
+    const query = `
+      UPDATE Category
+      SET ${sets.join(", ")}
+      OUTPUT INSERTED.*
+      WHERE CategoryId = @categoryId
+    `;
+
+    const result = await request.query(query);
+    await transaction.commit();
+
+    return result.recordset.length > 0 ? result.recordset[0] : null;
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
   }
-  if (category.ParentCategoryId !== undefined) {
-    request.input("parentCategoryId", sql.Int, category.ParentCategoryId);
-    sets.push("ParentCategoryId = @parentCategoryId");
-  }
-  if (category.IsActive !== undefined) {
-    request.input("isActive", sql.Bit, category.IsActive);
-    sets.push("IsActive = @isActive");
-  }
-
-  if (sets.length === 0) {
-    return await getCategoryById(categoryId);
-  }
-
-  const query = `
-    UPDATE Category
-    SET ${sets.join(", ")}
-    OUTPUT INSERTED.*
-    WHERE CategoryId = @categoryId
-  `;
-
-  const result = await request.query(query);
-  return result.recordset.length > 0 ? result.recordset[0] : null;
 }
 
 /**
