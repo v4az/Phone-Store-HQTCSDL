@@ -1,56 +1,10 @@
 import { getPool } from "@/lib/db";
 import sql from "mssql";
-import { Customer, SalesInvoice, SalesInvoiceLine } from "@/lib/types";
+import { SalesInvoice, SalesInvoiceLine } from "@/lib/types";
 import { InsufficientStockError } from "@/lib/errors";
 
 /**
- * Find existing customer by phone or create a new one.
- * Returns CustomerId.
- */
-export async function findOrCreateCustomer(
-  name: string,
-  phone: string | null,
-  transaction?: sql.Transaction
-): Promise<number> {
-  const executor = transaction || await getPool();
-
-  // Try to find by phone first (if provided)
-  if (phone) {
-    const existing = await executor
-      .request()
-      .input("phone", sql.NVarChar(20), phone)
-      .query(`SELECT CustomerId, Name FROM Customer WHERE Phone = @phone`);
-
-    if (existing.recordset.length > 0) {
-      // Update name if changed
-      const customer = existing.recordset[0];
-      if (customer.Name !== name) {
-        await executor
-          .request()
-          .input("customerId", sql.Int, customer.CustomerId)
-          .input("name", sql.NVarChar(200), name)
-          .query(`UPDATE Customer SET Name = @name WHERE CustomerId = @customerId`);
-      }
-      return customer.CustomerId;
-    }
-  }
-
-  // Create new customer
-  const result = await executor
-    .request()
-    .input("name", sql.NVarChar(200), name)
-    .input("phone", sql.NVarChar(20), phone)
-    .query(`
-      INSERT INTO Customer (Name, Phone, IsActive)
-      OUTPUT INSERTED.CustomerId
-      VALUES (@name, @phone, 1)
-    `);
-
-  return result.recordset[0].CustomerId;
-}
-
-/**
- * Fetch all invoices with customer name
+ * Fetch all invoices
  */
 export async function getInvoices(): Promise<SalesInvoice[]> {
   const pool = await getPool();
@@ -58,25 +12,16 @@ export async function getInvoices(): Promise<SalesInvoice[]> {
     .request()
     .query(`
       SELECT
-        si.InvoiceId,
-        si.InvoiceCode,
-        si.CustomerId,
-        si.InvoiceDate,
-        si.TotalAmount,
-        si.DiscountAmount,
-        si.FinalAmount,
-        si.CreatedBy,
-        c.Name AS CustomerName,
-        c.Phone AS CustomerPhone
-      FROM SalesInvoice si
-      LEFT JOIN Customer c ON si.CustomerId = c.CustomerId
-      ORDER BY si.InvoiceDate DESC
+        InvoiceId, InvoiceCode, InvoiceDate,
+        TotalAmount, DiscountAmount, FinalAmount,
+        CreatedBy, CustomerName, CustomerPhone
+      FROM SalesInvoice
+      ORDER BY InvoiceDate DESC
     `);
 
   return result.recordset.map((row) => ({
     InvoiceId: row.InvoiceId,
     InvoiceCode: row.InvoiceCode,
-    CustomerId: row.CustomerId,
     InvoiceDate: row.InvoiceDate,
     TotalAmount: row.TotalAmount,
     DiscountAmount: row.DiscountAmount,
@@ -101,19 +46,11 @@ export async function getInvoiceById(
     .input("invoiceId", sql.Int, invoiceId)
     .query(`
       SELECT
-        si.InvoiceId,
-        si.InvoiceCode,
-        si.CustomerId,
-        si.InvoiceDate,
-        si.TotalAmount,
-        si.DiscountAmount,
-        si.FinalAmount,
-        si.CreatedBy,
-        c.Name AS CustomerName,
-        c.Phone AS CustomerPhone
-      FROM SalesInvoice si
-      LEFT JOIN Customer c ON si.CustomerId = c.CustomerId
-      WHERE si.InvoiceId = @invoiceId
+        InvoiceId, InvoiceCode, InvoiceDate,
+        TotalAmount, DiscountAmount, FinalAmount,
+        CreatedBy, CustomerName, CustomerPhone
+      FROM SalesInvoice
+      WHERE InvoiceId = @invoiceId
     `);
 
   if (invoiceResult.recordset.length === 0) return null;
@@ -161,7 +98,6 @@ export async function getInvoiceById(
   return {
     InvoiceId: invoiceRow.InvoiceId,
     InvoiceCode: invoiceRow.InvoiceCode,
-    CustomerId: invoiceRow.CustomerId,
     InvoiceDate: invoiceRow.InvoiceDate,
     TotalAmount: invoiceRow.TotalAmount,
     DiscountAmount: invoiceRow.DiscountAmount,
@@ -261,7 +197,8 @@ export async function createInvoice(
     const headerResult = await transaction
       .request()
       .input("invoiceCode", sql.NVarChar(50), invoice.InvoiceCode)
-      .input("customerId", sql.Int, invoice.CustomerId)
+      .input("customerName", sql.NVarChar(200), invoice.CustomerName ?? null)
+      .input("customerPhone", sql.NVarChar(20), invoice.CustomerPhone ?? null)
       .input("invoiceDate", sql.DateTime2, invoice.InvoiceDate)
       .input("totalAmount", sql.Decimal(18, 2), totalAmount)
       .input("discountAmount", sql.Decimal(18, 2), discountAmount)
@@ -270,7 +207,8 @@ export async function createInvoice(
       .query(`
         INSERT INTO SalesInvoice (
           InvoiceCode,
-          CustomerId,
+          CustomerName,
+          CustomerPhone,
           InvoiceDate,
           TotalAmount,
           DiscountAmount,
@@ -280,7 +218,8 @@ export async function createInvoice(
         OUTPUT INSERTED.*
         VALUES (
           @invoiceCode,
-          @customerId,
+          @customerName,
+          @customerPhone,
           @invoiceDate,
           @totalAmount,
           @discountAmount,

@@ -59,6 +59,12 @@ export default function SalesTable() {
         record.CustomerName || "Khách lẻ",
     },
     {
+      title: "SĐT",
+      dataIndex: "CustomerPhone",
+      key: "CustomerPhone",
+      render: (v: string | null) => v || "—",
+    },
+    {
       title: "Ngày lập",
       dataIndex: "InvoiceDate",
       key: "InvoiceDate",
@@ -142,8 +148,8 @@ export default function SalesTable() {
         columns={columns}
         dataSource={data}
         loading={loading}
-        searchFields={["InvoiceCode", "CustomerName"]}
-        searchPlaceholder="Tìm mã hóa đơn, tên khách..."
+        searchFields={["InvoiceCode", "CustomerName", "CustomerPhone"]}
+        searchPlaceholder="Tìm mã hóa đơn, tên khách, SĐT..."
       />
 
       <Modal
