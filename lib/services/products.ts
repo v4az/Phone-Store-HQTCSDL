@@ -58,11 +58,13 @@ export async function getProductsWithVariants(): Promise<Product[]> {
       p.BrandId, p.CategoryId, p.WarrantyMonths, p.Description, p.IsActive,
       b.BrandName, c.CategoryName,
       pv.VariantId, pv.Sku, pv.Color, pv.Storage,
-      pv.CostPrice, pv.RetailPrice, pv.IsActive AS VariantIsActive
+      pv.CostPrice, pv.RetailPrice, pv.IsActive AS VariantIsActive,
+      ISNULL(is_stk.QuantityOnHand, 0) - ISNULL(is_stk.QuantityReserved, 0) AS AvailableQty
     FROM Product p
     LEFT JOIN Brand b ON p.BrandId = b.BrandId
     LEFT JOIN Category c ON p.CategoryId = c.CategoryId
     LEFT JOIN ProductVariant pv ON p.ProductId = pv.ProductId AND pv.IsActive = 1
+    LEFT JOIN InventoryStock is_stk ON pv.VariantId = is_stk.VariantId
     WHERE p.IsActive = 1
     ORDER BY p.ProductName, pv.Sku
   `);
@@ -97,6 +99,7 @@ export async function getProductsWithVariants(): Promise<Product[]> {
         CostPrice: row.CostPrice || 0,
         RetailPrice: row.RetailPrice || 0,
         IsActive: true,
+        QuantityOnHand: row.AvailableQty ?? 0,
       });
     }
   }

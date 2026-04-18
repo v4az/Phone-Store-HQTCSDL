@@ -27,13 +27,15 @@ export default function SaleForm() {
     fetchProducts();
   }, []);
 
-  // Build options for product variants
-  const variantOptions = products.flatMap((p: any) => 
+  // Build options for product variants with available stock
+  const variantOptions = products.flatMap((p: any) =>
     p.Variants.map((v: any) => ({
-      label: `${p.ProductName} - ${v.Color || ''} ${v.Storage || ''} [SKU: ${v.Sku}]`,
+      label: `${p.ProductName} - ${v.Color || ''} ${v.Storage || ''} [SKU: ${v.Sku}] (Kho: ${v.QuantityOnHand ?? 0})`,
       value: v.VariantId,
       price: v.RetailPrice,
       productName: p.ProductName,
+      available: v.QuantityOnHand ?? 0,
+      disabled: (v.QuantityOnHand ?? 0) <= 0,
     }))
   );
 
@@ -166,17 +168,32 @@ export default function SaleForm() {
                         </Form.Item>
                       </Col>
                       <Col span={4}>
-                        <Form.Item
-                          {...restField}
-                          name={[name, "Quantity"]}
-                          label="Số lượng"
-                          rules={[
-                            { required: true, message: "Nhập SL" },
-                            { pattern: /^[1-9]\d*$/, message: "Phải là số nguyên >= 1" }
-                          ]}
-                          style={{ marginBottom: 0 }}
-                        >
-                          <Input style={{ width: "100%" }} />
+                        <Form.Item noStyle dependencies={[["Lines", name, "VariantId"]]}>
+                          {() => {
+                            const selectedVariantId = form.getFieldValue(["Lines", name, "VariantId"]);
+                            const variant = variantOptions.find((v: any) => v.value === selectedVariantId);
+                            const maxQty = variant?.available ?? 0;
+                            return (
+                              <Form.Item
+                                {...restField}
+                                name={[name, "Quantity"]}
+                                label={`Số lượng (tối đa: ${maxQty})`}
+                                rules={[
+                                  { required: true, message: "Nhập SL" },
+                                  {
+                                    validator: async (_, value) => {
+                                      if (value && Number(value) > maxQty) {
+                                        return Promise.reject(new Error(`Tối đa ${maxQty}`));
+                                      }
+                                    }
+                                  }
+                                ]}
+                                style={{ marginBottom: 0 }}
+                              >
+                                <InputNumber min={1} max={maxQty || undefined} style={{ width: "100%" }} />
+                              </Form.Item>
+                            );
+                          }}
                         </Form.Item>
                       </Col>
                       <Col span={4}>
