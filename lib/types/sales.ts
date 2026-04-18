@@ -18,6 +18,7 @@ export interface SalesInvoice {
   DiscountAmount: number;
   FinalAmount: number;
   CreatedBy: string | null;
+  Lines?: SalesInvoiceLine[];
 }
 
 export interface SalesInvoiceLine {
@@ -28,4 +29,9 @@ export interface SalesInvoiceLine {
   UnitPrice: number;
   DiscountPct: number;
   LineTotal: number;
+  // Joined fields for display
+  ProductName?: string;
+  Sku?: string;
+  Color?: string | null;
+  Storage?: string | null;
 }

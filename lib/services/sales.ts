@@ -66,7 +66,7 @@ export async function getInvoiceById(
 
   const invoiceRow = invoiceResult.recordset[0];
 
-  // Invoice lines
+  // Invoice lines with product/variant info for display
   const linesResult = await pool
     .request()
     .input("invoiceId", sql.Int, invoiceId)
@@ -78,8 +78,14 @@ export async function getInvoiceById(
         sil.Quantity,
         sil.UnitPrice,
         sil.DiscountPct,
-        sil.LineTotal
+        sil.LineTotal,
+        p.ProductName,
+        pv.Sku,
+        pv.Color,
+        pv.Storage
       FROM SalesInvoiceLine sil
+      LEFT JOIN ProductVariant pv ON sil.VariantId = pv.VariantId
+      LEFT JOIN Product p ON pv.ProductId = p.ProductId
       WHERE sil.InvoiceId = @invoiceId
       ORDER BY sil.[LineNo]
     `);
@@ -91,10 +97,13 @@ export async function getInvoiceById(
     Quantity: row.Quantity,
     UnitPrice: row.UnitPrice,
     DiscountPct: row.DiscountPct,
-    LineTotal: row.LineTotal
+    LineTotal: row.LineTotal,
+    ProductName: row.ProductName || "",
+    Sku: row.Sku || "",
+    Color: row.Color || null,
+    Storage: row.Storage || null,
   }));
 
-  // Attach lines to invoice (adjust if you want nested object)
   return {
     InvoiceId: invoiceRow.InvoiceId,
     InvoiceCode: invoiceRow.InvoiceCode,
@@ -103,7 +112,8 @@ export async function getInvoiceById(
     TotalAmount: invoiceRow.TotalAmount,
     DiscountAmount: invoiceRow.DiscountAmount,
     FinalAmount: invoiceRow.FinalAmount,
-    CreatedBy: invoiceRow.CreatedBy || null
+    CreatedBy: invoiceRow.CreatedBy || null,
+    Lines: lines,
   };
 }
 
@@ -261,76 +271,6 @@ export async function createInvoice(
 
     await transaction.commit();
     return newInvoice;
-  } catch (error) {
-    await transaction.rollback();
-    throw error;
-  }
-}
-
-/**
- * Update an existing invoice (header only; lines are usually not edited afterward)
- */
-export async function updateInvoice(
-  invoiceId: number,
-  invoice: Partial<Omit<SalesInvoice, "InvoiceId">>
-): Promise<SalesInvoice | null> {
-  const pool = await getPool();
-  const transaction = new sql.Transaction(pool);
-
-  try {
-    await transaction.begin();
-
-    const sets: string[] = [];
-    const request = transaction.request();
-    request.input("invoiceId", sql.Int, invoiceId);
-
-    if (invoice.InvoiceCode !== undefined) {
-      request.input("invoiceCode", sql.NVarChar(50), invoice.InvoiceCode);
-      sets.push("InvoiceCode = @invoiceCode");
-    }
-    if (invoice.CustomerId !== undefined) {
-      request.input("customerId", sql.Int, invoice.CustomerId);
-      sets.push("CustomerId = @customerId");
-    }
-    if (invoice.InvoiceDate !== undefined) {
-      request.input("invoiceDate", sql.DateTime2, invoice.InvoiceDate);
-      sets.push("InvoiceDate = @invoiceDate");
-    }
-    if (invoice.TotalAmount !== undefined) {
-      request.input("totalAmount", sql.Decimal(18, 2), invoice.TotalAmount);
-      sets.push("TotalAmount = @totalAmount");
-    }
-    if (invoice.DiscountAmount !== undefined) {
-      request.input("discountAmount", sql.Decimal(18, 2), invoice.DiscountAmount);
-      sets.push("DiscountAmount = @discountAmount");
-    }
-    if (invoice.FinalAmount !== undefined) {
-      request.input("finalAmount", sql.Decimal(18, 2), invoice.FinalAmount);
-      sets.push("FinalAmount = @finalAmount");
-    }
-    if (invoice.CreatedBy !== undefined) {
-      request.input("createdBy", sql.NVarChar(100), invoice.CreatedBy ?? null);
-      sets.push("CreatedBy = @createdBy");
-    }
-
-    if (sets.length === 0) {
-      await transaction.commit();
-      return await getInvoiceById(invoiceId);
-    }
-
-    const query = `
-      UPDATE SalesInvoice
-      SET ${sets.join(", ")}
-      OUTPUT INSERTED.*
-      WHERE InvoiceId = @invoiceId
-    `;
-
-    const result = await request.query(query);
-    await transaction.commit();
-
-    if (result.recordset.length === 0) return null;
-
-    return result.recordset[0] as SalesInvoice;
   } catch (error) {
     await transaction.rollback();
     throw error;

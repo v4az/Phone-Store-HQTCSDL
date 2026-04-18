@@ -6,6 +6,7 @@ import {
   AppstoreOutlined,
   InboxOutlined,
   ShoppingCartOutlined,
+  HistoryOutlined,
 } from "@ant-design/icons";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -30,6 +31,11 @@ export default function Sidebar() {
       key: "/inventory",
       icon: <InboxOutlined />,
       label: <Link href="/inventory">Inventory</Link>,
+    },
+    {
+      key: "/sales",
+      icon: <HistoryOutlined />,
+      label: <Link href="/sales">Sales</Link>,
     },
     {
       key: "/sales/new",
