@@ -1,0 +1,321 @@
+CÁC VẤN ĐỀ ĐỒNG THỜI TRONG CƠ SỞ DỮ LIỆU (DATABASE CONCURRENCY PROBLEMS)
+=============================================================================
+
+Hệ thống: Quản lý điện thoại & phụ kiện (CSDL)
+SQL Server 2022, isolation level mặc định: READ COMMITTED
+
+
+-----------------------------------------------------------------------------
+1. DIRTY READ (Đọc dữ liệu bẩn)
+-----------------------------------------------------------------------------
+
+Là gì:
+  Đọc dữ liệu mà transaction khác đã ghi nhưng CHƯA COMMIT.
+  Nếu transaction đó ROLLBACK, dữ liệu đã đọc không tồn tại.
+
+Cần gì để gặp lỗi này:
+  Phải tự bật READ UNCOMMITTED hoặc dùng WITH (NOLOCK).
+  SQL Server mặc định KHÔNG cho phép dirty read.
+
+Tình huống trong dự án:
+  Nhân viên A tạo phiếu nhập hàng, tăng tồn kho lên 15 (chưa commit).
+  Nhân viên B kiểm tra tồn kho, đọc được 15 (dữ liệu chưa commit).
+  Nhân viên A huỷ phiếu nhập (ROLLBACK), tồn kho về lại 10.
+  Nhưng nhân viên B đã đưa ra quyết định dựa trên số 15 sai.
+
+Query để tái hiện:
+
+  -- Session 1: Nhập hàng (chưa commit)
+  BEGIN TRANSACTION
+  UPDATE InventoryStock
+  SET QuantityOnHand = QuantityOnHand + 5
+  WHERE VariantId = 1 AND LocationId = 1
+  -- QuantityOnHand: 10 → 15 (chưa commit)
+
+  -- Session 2: Kiểm tra tồn kho (dùng READ UNCOMMITTED)
+  SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED
+  SELECT QuantityOnHand FROM InventoryStock
+  WHERE VariantId = 1 AND LocationId = 1
+  -- Đọc được 15 (dữ liệu chưa commit!)
+
+  -- Session 1: Huỷ nhập hàng
+  ROLLBACK
+  -- QuantityOnHand về lại 10, nhưng Session 2 đã đọc 15
+
+Cách phòng tránh:
+  - Giữ nguyên READ COMMITTED mặc định (không đổi).
+  - Không dùng WITH (NOLOCK) hoặc READ UNCOMMITTED trên các query quan trọng.
+
+  -- An toàn: dùng mặc định READ COMMITTED
+  SELECT QuantityOnHand FROM InventoryStock
+  WHERE VariantId = 1 AND LocationId = 1
+  -- Sẽ ĐỢI nếu có transaction khác đang ghi vào row này
+
+
+-----------------------------------------------------------------------------
+2. NON-REPEATABLE READ (Đọc không lặp lại)
+-----------------------------------------------------------------------------
+
+Là gì:
+  Trong cùng 1 transaction, đọc cùng 1 dòng 2 lần nhưng giá trị khác nhau,
+  vì transaction khác đã sửa và commit giữa 2 lần đọc.
+
+Cần gì để gặp lỗi này:
+  READ COMMITTED (mặc định) — lỗi này CÓ THỂ xảy ra ngay bây giờ.
+
+Tình huống trong dự án:
+  Nhân viên đang tạo hoá đơn bán hàng. Đọc giá bán của 1 sản phẩm = 22.990.000.
+  Trong lúc đó, quản lý cập nhật giá thành 21.990.000.
+  Nhân viên đọc giá lần 2 cho dòng tiếp theo của cùng sản phẩm — được 21.990.000.
+  Hoá đơn có 2 dòng cùng sản phẩm nhưng khác giá.
+
+Query để tái hiện:
+
+  -- Session 1: Tạo hoá đơn, đọc giá
+  BEGIN TRANSACTION
+  SELECT RetailPrice FROM ProductVariant WHERE VariantId = 1
+  -- Đọc 22.990.000
+
+  -- Session 2: Manager điều chỉnh giá
+  UPDATE ProductVariant SET RetailPrice = 21990000 WHERE VariantId = 1
+  -- Commit ngay lập tức
+
+  -- Session 1: Đọc giá lần 2 (cùng transaction)
+  SELECT RetailPrice FROM ProductVariant WHERE VariantId = 1
+  -- Đọc 21.990.000 — giá khác lần đầu!
+  COMMIT
+
+Cách phòng tránh:
+
+  Cách A — Dùng REPEATABLE READ:
+
+  SET TRANSACTION ISOLATION LEVEL REPEATABLE READ
+  BEGIN TRANSACTION
+  SELECT RetailPrice FROM ProductVariant WHERE VariantId = 1
+  -- Đọc 22.990.000 — row này bị LOCK, không ai sửa được
+
+  -- Session 2 cố update → bị BLOCK cho đến khi Session 1 commit
+
+  SELECT RetailPrice FROM ProductVariant WHERE VariantId = 1
+  -- Vẫn đọc 22.990.000
+  COMMIT
+
+  Cách B — Đọc 1 lần, dùng lại trong code:
+
+  // Đọc giá 1 LẦN, dùng cho tất cả tính toán
+  const variant = await pool.request()
+    .input('variantId', variantId)
+    .query('SELECT RetailPrice FROM ProductVariant WHERE VariantId = @variantId');
+
+  const price = variant.recordset[0].RetailPrice;
+  // Dùng biến 'price' cho tất cả dòng hoá đơn — không query lại
+
+
+-----------------------------------------------------------------------------
+3. LOST UPDATE (Mất cập nhật)
+-----------------------------------------------------------------------------
+
+Là gì:
+  2 transaction cùng đọc 1 giá trị, tính toán giá trị mới dựa trên giá trị đã đọc,
+  rồi ghi lại. Transaction ghi sau đè lên transaction ghi trước — mất cập nhật.
+
+Cần gì để gặp lỗi này:
+  READ COMMITTED (mặc định) — lỗi này CÓ THỂ xảy ra ngay bây giờ.
+  Đây là lỗi NGUY HIỂM NHẤT trong hệ thống.
+
+Tình huống trong dự án:
+  2 nhân viên bán hàng cùng lúc. Cả 2 đọc tồn kho = 10.
+  Nhân viên A bán 1 cái, ghi tồn kho = 9.
+  Nhân viên B bán 2 cái, ghi tồn kho = 8.
+  Kết quả: tồn kho = 8, nhưng đúng phải là 7 (10 - 1 - 2).
+  Update của nhân viên A bị mất — tồn kho sai.
+
+Query để tái hiện (CÁCH SAI):
+
+  -- Session 1: Bán 1 cái
+  BEGIN TRANSACTION
+  SELECT QuantityOnHand FROM InventoryStock
+  WHERE VariantId = 1 AND LocationId = 1
+  -- Đọc 10
+
+  -- Session 2: Bán 2 cái (chạy đồng thời)
+  BEGIN TRANSACTION
+  SELECT QuantityOnHand FROM InventoryStock
+  WHERE VariantId = 1 AND LocationId = 1
+  -- Cũng đọc 10
+
+  -- Session 2: Ghi trước
+  UPDATE InventoryStock SET QuantityOnHand = 8   -- 10 - 2
+  WHERE VariantId = 1 AND LocationId = 1
+  COMMIT
+
+  -- Session 1: Ghi sau (dùng giá trị cũ)
+  UPDATE InventoryStock SET QuantityOnHand = 9   -- 10 - 1
+  WHERE VariantId = 1 AND LocationId = 1
+  COMMIT
+  -- Kết quả: 9 ← SAI! Phải là 7 (10 - 1 - 2)
+  -- Mất update của Session 2
+
+Cách phòng tránh:
+
+  Cách A — Atomic update (tốt nhất, đơn giản nhất):
+
+  -- Không cần đọc trước, trừ trực tiếp trong UPDATE
+  UPDATE InventoryStock
+  SET QuantityOnHand = QuantityOnHand - @quantity
+  WHERE VariantId = @variantId AND LocationId = @locationId
+
+  -- Session 1: QuantityOnHand = QuantityOnHand - 1 → 10 - 1 = 9
+  -- Session 2: QuantityOnHand = QuantityOnHand - 2 → 9 - 2 = 7 (đúng!)
+
+  Cách B — Dùng UPDLOCK (lock row khi đọc):
+
+  BEGIN TRANSACTION
+  SELECT QuantityOnHand FROM InventoryStock WITH (UPDLOCK)
+  WHERE VariantId = 1 AND LocationId = 1
+  -- Đọc 10, VÀ lock row — Session 2 phải đợi
+
+  -- Session 2 cố SELECT WITH (UPDLOCK) → bị BLOCK
+
+  UPDATE InventoryStock SET QuantityOnHand = 10 - 1
+  WHERE VariantId = 1 AND LocationId = 1
+  COMMIT
+  -- Bây giờ Session 2 mới được đọc (đọc 9, tính tiếp đúng)
+
+  Cách C — Code với atomic update:
+
+  // SAI: đọc rồi ghi
+  const result = await pool.request().query(
+    'SELECT QuantityOnHand FROM InventoryStock WHERE VariantId = 1'
+  );
+  const current = result.recordset[0].QuantityOnHand;
+  await pool.request().query(
+    `UPDATE InventoryStock SET QuantityOnHand = ${current - qty}`
+  );
+
+  // ĐÚNG: atomic update + kiểm tra
+  await pool.request()
+    .input('qty', quantity)
+    .input('variantId', variantId)
+    .input('locationId', locationId)
+    .query(`
+      UPDATE InventoryStock
+      SET QuantityOnHand = QuantityOnHand - @qty
+      WHERE VariantId = @variantId
+        AND LocationId = @locationId
+        AND QuantityOnHand >= @qty
+    `);
+  // Nếu rowsAffected = 0 → không đủ hàng, từ chối bán
+
+
+-----------------------------------------------------------------------------
+4. PHANTOM READ (Đọc bản ghi ma)
+-----------------------------------------------------------------------------
+
+Là gì:
+  Trong cùng 1 transaction, chạy cùng 1 query 2 lần nhưng số dòng khác nhau,
+  vì transaction khác đã INSERT hoặc DELETE giữa 2 lần đọc.
+
+Cần gì để gặp lỗi này:
+  READ COMMITTED (mặc định) và REPEATABLE READ đều cho phép phantom.
+  Chỉ SERIALIZABLE hoặc SNAPSHOT mới ngăn được.
+
+Tình huống trong dự án:
+  Quản lý tạo báo cáo doanh thu trong ngày. Query lần 1: 5 hoá đơn, tổng 50.000.000.
+  Trong lúc đó, nhân viên tạo hoá đơn mới.
+  Query lần 2: 6 hoá đơn — phantom row xuất hiện.
+  Báo cáo không nhất quán: số hoá đơn và tổng tiền không khớp.
+
+Query để tái hiện:
+
+  -- Session 1: Tạo báo cáo doanh thu hôm nay
+  SET TRANSACTION ISOLATION LEVEL REPEATABLE READ
+  BEGIN TRANSACTION
+  SELECT COUNT(*) AS SoHoaDon, SUM(FinalAmount) AS TongTien
+  FROM SalesInvoice
+  WHERE InvoiceDate >= '2026-04-07'
+  -- Đọc: 5 hoá đơn, tổng 50.000.000
+
+  -- Session 2: Nhân viên tạo hoá đơn mới
+  INSERT INTO SalesInvoice (InvoiceCode, InvoiceDate, TotalAmount, FinalAmount)
+  VALUES ('INV-006', GETDATE(), 22990000, 22990000)
+  COMMIT
+  -- INSERT KHÔNG bị block bởi REPEATABLE READ
+
+  -- Session 1: Query lần 2
+  SELECT COUNT(*) AS SoHoaDon, SUM(FinalAmount) AS TongTien
+  FROM SalesInvoice
+  WHERE InvoiceDate >= '2026-04-07'
+  -- Đọc: 6 hoá đơn, tổng 72.990.000 — phantom row xuất hiện!
+  COMMIT
+
+Cách phòng tránh:
+
+  Cách A — Dùng SERIALIZABLE (nghiêm ngặt nhất, có thể gây block nhiều):
+
+  SET TRANSACTION ISOLATION LEVEL SERIALIZABLE
+  BEGIN TRANSACTION
+  SELECT COUNT(*) AS SoHoaDon, SUM(FinalAmount) AS TongTien
+  FROM SalesInvoice
+  WHERE InvoiceDate >= '2026-04-07'
+  -- Lock cả RANGE — không ai insert được row mới trong range này
+
+  -- Session 2 cố INSERT → bị BLOCK cho đến khi Session 1 commit
+
+  SELECT COUNT(*) AS SoHoaDon, SUM(FinalAmount) AS TongTien
+  FROM SalesInvoice
+  WHERE InvoiceDate >= '2026-04-07'
+  -- Vẫn đọc 5 hoá đơn, tổng 50.000.000
+  COMMIT
+
+  Cách B — Dùng SNAPSHOT isolation (không block, dùng row versioning):
+
+  -- Bật 1 lần cho database
+  ALTER DATABASE csdl SET ALLOW_SNAPSHOT_ISOLATION ON
+
+  -- Session 1: Báo cáo
+  SET TRANSACTION ISOLATION LEVEL SNAPSHOT
+  BEGIN TRANSACTION
+  SELECT COUNT(*) AS SoHoaDon, SUM(FinalAmount) AS TongTien
+  FROM SalesInvoice
+  WHERE InvoiceDate >= '2026-04-07'
+  -- Đọc snapshot tại thời điểm BEGIN TRANSACTION
+
+  -- Session 2 insert bình thường, không bị block
+  -- Nhưng Session 1 không thấy row mới — snapshot cố định
+  COMMIT
+
+  Cách C — Dùng 1 query duy nhất (cho báo cáo đơn giản):
+
+  -- Nếu chỉ cần 1 query, không có phantom vì chỉ đọc 1 lần
+  SELECT
+    COUNT(*) AS SoHoaDon,
+    SUM(FinalAmount) AS TongTien
+  FROM SalesInvoice
+  WHERE InvoiceDate >= '2026-04-07'
+  -- Đọc 1 lần duy nhất — nhất quán trong chính nó
+
+
+=============================================================================
+BẢNG TÓM TẮT
+=============================================================================
+
+Vấn đề              | Mô tả                              | Mặc định có lỗi? | Điểm nóng                         | Cách phòng tránh tốt nhất
+--------------------|------------------------------------|-------------------|-----------------------------------|----------------------------------
+Dirty Read          | Đọc dữ liệu chưa commit            | Không (đã chặn)   | InventoryStock                    | Giữ mặc định READ COMMITTED
+Non-Repeatable Read | Giá trị đổi giữa 2 lần đọc         | Có                | ProductVariant.RetailPrice        | Đọc 1 lần + tái sử dụng, hoặc REPEATABLE READ
+Lost Update         | 2 người cùng sửa, 1 bị mất         | Có (nguy hiểm!)   | InventoryStock.QuantityOnHand     | Atomic update: SET col = col - @qty
+Phantom Read        | Số dòng đổi giữa 2 lần đọc         | Có                | SalesInvoice, PurchaseOrder       | SERIALIZABLE hoặc SNAPSHOT cho báo cáo
+
+
+=============================================================================
+BẢNG ISOLATION LEVEL VÀ CÁC VẤN ĐỀ
+=============================================================================
+
+Isolation Level           | Dirty Read | Non-Repeatable Read | Lost Update | Phantom Read
+--------------------------|------------|---------------------|-------------|-------------
+READ UNCOMMITTED          | Có thể     | Có thể              | Có thể      | Có thể
+READ COMMITTED (mặc định) | Ngăn được  | Có thể              | Có thể      | Có thể
+REPEATABLE READ           | Ngăn được  | Ngăn được           | Ngăn được   | Có thể
+SERIALIZABLE              | Ngăn được  | Ngăn được           | Ngăn được   | Ngăn được
+SNAPSHOT                  | Ngăn được  | Ngăn được           | Ngăn được   | Ngăn được
