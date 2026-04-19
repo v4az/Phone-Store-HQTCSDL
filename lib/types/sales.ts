@@ -1,23 +1,17 @@
 // Sales, Invoice & Customer types
 // Maps to: SalesInvoice, SalesInvoiceLine, Customer tables
 
-export interface Customer {
-  CustomerId: number;
-  Name: string;
-  Phone: string | null;
-  Address: string | null;
-  IsActive: boolean;
-}
-
 export interface SalesInvoice {
   InvoiceId: number;
   InvoiceCode: string;
-  CustomerId: number | null;
   InvoiceDate: string;
   TotalAmount: number;
   DiscountAmount: number;
   FinalAmount: number;
   CreatedBy: string | null;
+  CustomerName: string | null;
+  CustomerPhone: string | null;
+  Lines?: SalesInvoiceLine[];
 }
 
 export interface SalesInvoiceLine {
@@ -28,4 +22,9 @@ export interface SalesInvoiceLine {
   UnitPrice: number;
   DiscountPct: number;
   LineTotal: number;
+  // Joined fields for display
+  ProductName?: string;
+  Sku?: string;
+  Color?: string | null;
+  Storage?: string | null;
 }

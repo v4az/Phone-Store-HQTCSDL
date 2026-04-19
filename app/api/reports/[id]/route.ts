@@ -9,10 +9,10 @@ import { SalesSummaryByPeriod } from "@/lib/types/report";
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const id = await params.id;
+    const { id } = await params;
     const [type, key] = id.split(":");
 
     if (!type || !key) {

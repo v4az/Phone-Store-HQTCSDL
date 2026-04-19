@@ -28,7 +28,8 @@ export async function POST(request: NextRequest) {
       Lines: Omit<SalesInvoiceLine, "InvoiceId">[];
     } = {
       InvoiceCode: body.InvoiceCode,
-      CustomerId: body.CustomerId,
+      CustomerName: body.CustomerName || null,
+      CustomerPhone: body.CustomerPhone || null,
       InvoiceDate: body.InvoiceDate,
       TotalAmount: body.TotalAmount ?? 0,
       DiscountAmount: body.DiscountAmount ?? 0,
@@ -44,11 +45,31 @@ export async function POST(request: NextRequest) {
       })) ?? []
     };
 
+    if (invoiceData.Lines.length === 0) {
+      return NextResponse.json({ error: "Invoice must have at least one line" }, { status: 400 });
+    }
+
+    if (invoiceData.TotalAmount < 0 || invoiceData.FinalAmount < 0) {
+      return NextResponse.json({ error: "Amounts cannot be negative" }, { status: 400 });
+    }
+
+    for (const line of invoiceData.Lines) {
+      if (line.Quantity <= 0) {
+        return NextResponse.json({ error: "Quantity must be greater than 0" }, { status: 400 });
+      }
+      if (line.UnitPrice < 0) {
+        return NextResponse.json({ error: "Unit price cannot be negative" }, { status: 400 });
+      }
+      if (line.DiscountPct < 0 || line.DiscountPct > 100) {
+        return NextResponse.json({ error: "Discount must be between 0 and 100" }, { status: 400 });
+      }
+    }
+
     const locationId = body.LocationId ?? 1;
     const createdInvoice = await createInvoice(invoiceData, locationId);
 
     return NextResponse.json(createdInvoice, { status: 201 });
-  } catch (error: unknown) {
+  } catch (error: any) {
     // Insufficient stock → 409 Conflict
     if (error instanceof InsufficientStockError) {
       return NextResponse.json(
@@ -64,7 +85,7 @@ export async function POST(request: NextRequest) {
 
     console.error("POST /api/sales error:", error);
     return NextResponse.json(
-      { error: "Failed to create invoice" },
+      { error: "Không thể tạo đơn hàng" },
       { status: 500 }
     );
   }

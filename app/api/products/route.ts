@@ -1,11 +1,16 @@
 // /app/api/products/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
-import { getProducts, createProduct } from "@/lib/services";
+import { getProducts, getProductsWithVariants, createProduct } from "@/lib/services";
 import { Product, ProductVariant } from "@/lib/types";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const include = request.nextUrl.searchParams.get("include");
+    if (include === "variants") {
+      const products = await getProductsWithVariants();
+      return NextResponse.json(products);
+    }
     const products = await getProducts();
     return NextResponse.json(products);
   } catch (error: unknown) {
@@ -29,8 +34,8 @@ export async function POST(request: NextRequest) {
       IsActive: body.IsActive ?? true
     };
 
-    const variantData: Omit<ProductVariant, "VariantId" | "ProductId">[] =
-      body.Variants?.map((v: Omit<ProductVariant, "VariantId" | "ProductId">) => ({
+    const variantData: (Omit<ProductVariant, "VariantId" | "ProductId"> & { QuantityOnHand?: number })[] =
+      body.Variants?.map((v: any) => ({
         Sku: v.Sku,
         Color: v.Color,
         Storage: v.Storage,
@@ -38,13 +43,24 @@ export async function POST(request: NextRequest) {
         ImageUrl: v.ImageUrl ?? null,
         CostPrice: v.CostPrice ?? 0,
         RetailPrice: v.RetailPrice ?? 0,
-        IsActive: v.IsActive ?? true
+        IsActive: v.IsActive ?? true,
+        QuantityOnHand: v.QuantityOnHand ?? 0,
       })) ?? [];
+
+    if (productData.WarrantyMonths < 0) {
+      return NextResponse.json({ error: "WarrantyMonths cannot be negative" }, { status: 400 });
+    }
+    for (const v of variantData) {
+      if (v.CostPrice < 0 || v.RetailPrice < 0) {
+        return NextResponse.json({ error: "Prices cannot be negative" }, { status: 400 });
+      }
+    }
 
     const createdProduct = await createProduct(productData, variantData);
 
     return NextResponse.json(createdProduct, { status: 201 });
   } catch (error: unknown) {
-    return NextResponse.json({ error: "Failed to create product" }, { status: 500 });
+    console.error("POST /api/products error:", error);
+    return NextResponse.json({ error: "Không thể tạo sản phẩm" }, { status: 500 });
   }
 }

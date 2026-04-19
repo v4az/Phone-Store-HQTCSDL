@@ -3,6 +3,20 @@
 // - Show SKU, product name, location, quantity on hand, quantity reserved
 // - "use client" for interactivity
 
+import PageHeader from "@/components/PageHeader";
+import InventoryTable from "@/components/InventoryTable";
+
 export default function InventoryPage() {
-  return null;
+  return (
+    <div>
+      <PageHeader
+        title="Quản lý Tồn kho"
+        breadcrumbs={[
+          { label: "Dashboard", href: "/" },
+          { label: "Tồn kho" },
+        ]}
+      />
+      <InventoryTable />
+    </div>
+  );
 }

@@ -47,6 +47,67 @@ export async function getProducts(): Promise<Omit<Product, "Variants">[]> {
 }
 
 /**
+ * Fetch all active products with their variants (for sale form dropdown).
+ * Groups flat rows into Product -> Variants[] structure.
+ */
+export async function getProductsWithVariants(): Promise<Product[]> {
+  const pool = await getPool();
+  const result = await pool.request().query(`
+    SELECT
+      p.ProductId, p.ProductCode, p.ProductName,
+      p.BrandId, p.CategoryId, p.WarrantyMonths, p.Description, p.IsActive,
+      b.BrandName, c.CategoryName,
+      pv.VariantId, pv.Sku, pv.Color, pv.Storage,
+      pv.CostPrice, pv.RetailPrice, pv.IsActive AS VariantIsActive,
+      ISNULL(is_stk.QuantityOnHand, 0) - ISNULL(is_stk.QuantityReserved, 0) AS AvailableQty
+    FROM Product p
+    LEFT JOIN Brand b ON p.BrandId = b.BrandId
+    LEFT JOIN Category c ON p.CategoryId = c.CategoryId
+    LEFT JOIN ProductVariant pv ON p.ProductId = pv.ProductId AND pv.IsActive = 1
+    LEFT JOIN InventoryStock is_stk ON pv.VariantId = is_stk.VariantId
+    WHERE p.IsActive = 1
+    ORDER BY p.ProductName, pv.Sku
+  `);
+
+  const productMap = new Map<number, Product>();
+
+  for (const row of result.recordset) {
+    if (!productMap.has(row.ProductId)) {
+      productMap.set(row.ProductId, {
+        ProductId: row.ProductId,
+        ProductCode: row.ProductCode || "",
+        ProductName: row.ProductName,
+        BrandId: row.BrandId,
+        BrandName: row.BrandName || "",
+        CategoryId: row.CategoryId,
+        CategoryName: row.CategoryName || "",
+        WarrantyMonths: row.WarrantyMonths || 0,
+        Description: row.Description || null,
+        IsActive: true,
+        Variants: [],
+      });
+    }
+    if (row.VariantId !== null) {
+      productMap.get(row.ProductId)!.Variants.push({
+        VariantId: row.VariantId,
+        ProductId: row.ProductId,
+        Sku: row.Sku || "",
+        Color: row.Color || null,
+        Storage: row.Storage || null,
+        OtherAttributes: null,
+        ImageUrl: null,
+        CostPrice: row.CostPrice || 0,
+        RetailPrice: row.RetailPrice || 0,
+        IsActive: true,
+        QuantityOnHand: row.AvailableQty ?? 0,
+      });
+    }
+  }
+
+  return Array.from(productMap.values());
+}
+
+/**
  * Create a new product with optional variants in a transaction
  *
  * - `product` contains product fields (no Variants)
@@ -54,7 +115,7 @@ export async function getProducts(): Promise<Omit<Product, "Variants">[]> {
  */
 export async function createProduct(
   product: Omit<Product, "ProductId" | "Variants">,
-  variants?: Omit<ProductVariant, "VariantId" | "ProductId">[]
+  variants?: (Omit<ProductVariant, "VariantId" | "ProductId"> & { QuantityOnHand?: number })[]
 ): Promise<Product> {
   const pool = await getPool();
   const transaction = new sql.Transaction(pool);
@@ -82,8 +143,19 @@ export async function createProduct(
     const newProduct = productResult.recordset[0] as Product;
 
     if (variants && variants.length > 0) {
+      // Ensure a default inventory location exists (trigger needs at least one)
+      await transaction
+        .request()
+        .query(`
+          IF NOT EXISTS (SELECT 1 FROM InventoryLocation)
+            INSERT INTO InventoryLocation (LocationName, Address)
+            VALUES (N'Main Store', N'Default location')
+        `);
+
       for (const variant of variants) {
-        await transaction
+        // Use SCOPE_IDENTITY() instead of OUTPUT to avoid trigger conflict
+        // (TR_ProductVariant_AfterInsert blocks OUTPUT without INTO clause)
+        const variantResult = await transaction
           .request()
           .input("productId", sql.Int, newProduct.ProductId)
           .input("sku", sql.NVarChar(50), variant.Sku)
@@ -98,8 +170,24 @@ export async function createProduct(
             INSERT INTO ProductVariant
               (ProductId, Sku, Color, Storage, OtherAttributes, ImageUrl, CostPrice, RetailPrice, IsActive)
             VALUES
-              (@productId, @sku, @color, @storage, @otherAttributes, @imageUrl, @costPrice, @retailPrice, @isActive)
+              (@productId, @sku, @color, @storage, @otherAttributes, @imageUrl, @costPrice, @retailPrice, @isActive);
+            SELECT SCOPE_IDENTITY() AS VariantId;
           `);
+
+        // Trigger auto-creates InventoryStock with qty 0 — update if initial qty provided
+        const newVariantId = variantResult.recordset[0].VariantId;
+        const initialQty = variant.QuantityOnHand ?? 0;
+        if (initialQty > 0) {
+          await transaction
+            .request()
+            .input("variantId", sql.Int, newVariantId)
+            .input("quantityOnHand", sql.Int, initialQty)
+            .query(`
+              UPDATE InventoryStock
+              SET QuantityOnHand = @quantityOnHand
+              WHERE VariantId = @variantId
+            `);
+        }
       }
     }
 
@@ -139,11 +227,14 @@ export async function getProductById(productId: number): Promise<Product | null>
         pv.ImageUrl,
         pv.CostPrice,
         pv.RetailPrice,
-        pv.IsActive AS VariantIsActive
+        pv.IsActive AS VariantIsActive,
+        is_stk.QuantityOnHand,
+        is_stk.QuantityReserved
       FROM Product p
       LEFT JOIN Brand b ON p.BrandId = b.BrandId
       LEFT JOIN Category c ON p.CategoryId = c.CategoryId
       LEFT JOIN ProductVariant pv ON p.ProductId = pv.ProductId
+      LEFT JOIN InventoryStock is_stk ON pv.VariantId = is_stk.VariantId
       WHERE p.ProductId = @productId
     `);
 
@@ -178,7 +269,9 @@ export async function getProductById(productId: number): Promise<Product | null>
         ImageUrl: row.ImageUrl || null,
         CostPrice: row.CostPrice || 0,
         RetailPrice: row.RetailPrice || 0,
-        IsActive: row.VariantIsActive !== undefined ? row.VariantIsActive : true
+        IsActive: row.VariantIsActive !== undefined ? row.VariantIsActive : true,
+        QuantityOnHand: row.QuantityOnHand ?? 0,
+        QuantityReserved: row.QuantityReserved ?? 0,
       });
     }
   }
@@ -337,12 +430,11 @@ export async function updateProduct(
     }
 
     // Only update Product table fields that live in Product
-    // Guard: AND IsActive = 1 prevents updating a soft-deleted product (dirty write prevention)
     const query = `
       UPDATE Product
       SET ${sets.filter(s => !s.includes("b.BrandName") && !s.includes("c.CategoryName")).join(", ")}
       OUTPUT INSERTED.*
-      WHERE ProductId = @productId AND IsActive = 1
+      WHERE ProductId = @productId
     `;
 
     const result = await request.query(query);
@@ -351,6 +443,40 @@ export async function updateProduct(
     if (result.recordset.length === 0) return null;
 
     return result.recordset[0] as Product;
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
+}
+
+/**
+ * Update inventory quantities for multiple variants in a single transaction.
+ * Each entry maps VariantId -> new QuantityOnHand value.
+ */
+export async function updateInventoryStock(
+  updates: { VariantId: number; QuantityOnHand: number }[]
+): Promise<void> {
+  if (updates.length === 0) return;
+
+  const pool = await getPool();
+  const transaction = new sql.Transaction(pool);
+
+  try {
+    await transaction.begin();
+
+    for (const { VariantId, QuantityOnHand } of updates) {
+      await transaction
+        .request()
+        .input("variantId", sql.Int, VariantId)
+        .input("quantityOnHand", sql.Int, QuantityOnHand)
+        .query(`
+          UPDATE InventoryStock
+          SET QuantityOnHand = @quantityOnHand
+          WHERE VariantId = @variantId
+        `);
+    }
+
+    await transaction.commit();
   } catch (error) {
     await transaction.rollback();
     throw error;

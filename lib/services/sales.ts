@@ -1,10 +1,10 @@
 import { getPool } from "@/lib/db";
 import sql from "mssql";
-import { Customer, SalesInvoice, SalesInvoiceLine } from "@/lib/types";
+import { SalesInvoice, SalesInvoiceLine } from "@/lib/types";
 import { InsufficientStockError } from "@/lib/errors";
 
 /**
- * Fetch all invoices (with customer info if needed)
+ * Fetch all invoices
  */
 export async function getInvoices(): Promise<SalesInvoice[]> {
   const pool = await getPool();
@@ -12,27 +12,23 @@ export async function getInvoices(): Promise<SalesInvoice[]> {
     .request()
     .query(`
       SELECT
-        si.InvoiceId,
-        si.InvoiceCode,
-        si.CustomerId,
-        si.InvoiceDate,
-        si.TotalAmount,
-        si.DiscountAmount,
-        si.FinalAmount,
-        si.CreatedBy
-      FROM SalesInvoice si
-      ORDER BY si.InvoiceDate DESC
+        InvoiceId, InvoiceCode, InvoiceDate,
+        TotalAmount, DiscountAmount, FinalAmount,
+        CreatedBy, CustomerName, CustomerPhone
+      FROM SalesInvoice
+      ORDER BY InvoiceDate DESC
     `);
 
   return result.recordset.map((row) => ({
     InvoiceId: row.InvoiceId,
     InvoiceCode: row.InvoiceCode,
-    CustomerId: row.CustomerId,
     InvoiceDate: row.InvoiceDate,
     TotalAmount: row.TotalAmount,
     DiscountAmount: row.DiscountAmount,
     FinalAmount: row.FinalAmount,
-    CreatedBy: row.CreatedBy || null
+    CreatedBy: row.CreatedBy || null,
+    CustomerName: row.CustomerName || null,
+    CustomerPhone: row.CustomerPhone || null,
   }));
 }
 
@@ -50,38 +46,39 @@ export async function getInvoiceById(
     .input("invoiceId", sql.Int, invoiceId)
     .query(`
       SELECT
-        si.InvoiceId,
-        si.InvoiceCode,
-        si.CustomerId,
-        si.InvoiceDate,
-        si.TotalAmount,
-        si.DiscountAmount,
-        si.FinalAmount,
-        si.CreatedBy
-      FROM SalesInvoice si
-      WHERE si.InvoiceId = @invoiceId
+        InvoiceId, InvoiceCode, InvoiceDate,
+        TotalAmount, DiscountAmount, FinalAmount,
+        CreatedBy, CustomerName, CustomerPhone
+      FROM SalesInvoice
+      WHERE InvoiceId = @invoiceId
     `);
 
   if (invoiceResult.recordset.length === 0) return null;
 
   const invoiceRow = invoiceResult.recordset[0];
 
-  // Invoice lines
+  // Invoice lines with product/variant info for display
   const linesResult = await pool
     .request()
     .input("invoiceId", sql.Int, invoiceId)
     .query(`
       SELECT
         sil.InvoiceId,
-        sil.LineNo,
+        sil.[LineNo],
         sil.VariantId,
         sil.Quantity,
         sil.UnitPrice,
         sil.DiscountPct,
-        sil.LineTotal
+        sil.LineTotal,
+        p.ProductName,
+        pv.Sku,
+        pv.Color,
+        pv.Storage
       FROM SalesInvoiceLine sil
+      LEFT JOIN ProductVariant pv ON sil.VariantId = pv.VariantId
+      LEFT JOIN Product p ON pv.ProductId = p.ProductId
       WHERE sil.InvoiceId = @invoiceId
-      ORDER BY sil.LineNo
+      ORDER BY sil.[LineNo]
     `);
 
   const lines: SalesInvoiceLine[] = linesResult.recordset.map((row) => ({
@@ -91,19 +88,24 @@ export async function getInvoiceById(
     Quantity: row.Quantity,
     UnitPrice: row.UnitPrice,
     DiscountPct: row.DiscountPct,
-    LineTotal: row.LineTotal
+    LineTotal: row.LineTotal,
+    ProductName: row.ProductName || "",
+    Sku: row.Sku || "",
+    Color: row.Color || null,
+    Storage: row.Storage || null,
   }));
 
-  // Attach lines to invoice (adjust if you want nested object)
   return {
     InvoiceId: invoiceRow.InvoiceId,
     InvoiceCode: invoiceRow.InvoiceCode,
-    CustomerId: invoiceRow.CustomerId,
     InvoiceDate: invoiceRow.InvoiceDate,
     TotalAmount: invoiceRow.TotalAmount,
     DiscountAmount: invoiceRow.DiscountAmount,
     FinalAmount: invoiceRow.FinalAmount,
-    CreatedBy: invoiceRow.CreatedBy || null
+    CreatedBy: invoiceRow.CreatedBy || null,
+    CustomerName: invoiceRow.CustomerName || null,
+    CustomerPhone: invoiceRow.CustomerPhone || null,
+    Lines: lines,
   };
 }
 
@@ -195,7 +197,8 @@ export async function createInvoice(
     const headerResult = await transaction
       .request()
       .input("invoiceCode", sql.NVarChar(50), invoice.InvoiceCode)
-      .input("customerId", sql.Int, invoice.CustomerId)
+      .input("customerName", sql.NVarChar(200), invoice.CustomerName ?? null)
+      .input("customerPhone", sql.NVarChar(20), invoice.CustomerPhone ?? null)
       .input("invoiceDate", sql.DateTime2, invoice.InvoiceDate)
       .input("totalAmount", sql.Decimal(18, 2), totalAmount)
       .input("discountAmount", sql.Decimal(18, 2), discountAmount)
@@ -204,7 +207,8 @@ export async function createInvoice(
       .query(`
         INSERT INTO SalesInvoice (
           InvoiceCode,
-          CustomerId,
+          CustomerName,
+          CustomerPhone,
           InvoiceDate,
           TotalAmount,
           DiscountAmount,
@@ -214,7 +218,8 @@ export async function createInvoice(
         OUTPUT INSERTED.*
         VALUES (
           @invoiceCode,
-          @customerId,
+          @customerName,
+          @customerPhone,
           @invoiceDate,
           @totalAmount,
           @discountAmount,
@@ -240,7 +245,7 @@ export async function createInvoice(
         .query(`
           INSERT INTO SalesInvoiceLine (
             InvoiceId,
-            LineNo,
+            [LineNo],
             VariantId,
             Quantity,
             UnitPrice,
@@ -261,76 +266,6 @@ export async function createInvoice(
 
     await transaction.commit();
     return newInvoice;
-  } catch (error) {
-    await transaction.rollback();
-    throw error;
-  }
-}
-
-/**
- * Update an existing invoice (header only; lines are usually not edited afterward)
- */
-export async function updateInvoice(
-  invoiceId: number,
-  invoice: Partial<Omit<SalesInvoice, "InvoiceId">>
-): Promise<SalesInvoice | null> {
-  const pool = await getPool();
-  const transaction = new sql.Transaction(pool);
-
-  try {
-    await transaction.begin();
-
-    const sets: string[] = [];
-    const request = transaction.request();
-    request.input("invoiceId", sql.Int, invoiceId);
-
-    if (invoice.InvoiceCode !== undefined) {
-      request.input("invoiceCode", sql.NVarChar(50), invoice.InvoiceCode);
-      sets.push("InvoiceCode = @invoiceCode");
-    }
-    if (invoice.CustomerId !== undefined) {
-      request.input("customerId", sql.Int, invoice.CustomerId);
-      sets.push("CustomerId = @customerId");
-    }
-    if (invoice.InvoiceDate !== undefined) {
-      request.input("invoiceDate", sql.DateTime2, invoice.InvoiceDate);
-      sets.push("InvoiceDate = @invoiceDate");
-    }
-    if (invoice.TotalAmount !== undefined) {
-      request.input("totalAmount", sql.Decimal(18, 2), invoice.TotalAmount);
-      sets.push("TotalAmount = @totalAmount");
-    }
-    if (invoice.DiscountAmount !== undefined) {
-      request.input("discountAmount", sql.Decimal(18, 2), invoice.DiscountAmount);
-      sets.push("DiscountAmount = @discountAmount");
-    }
-    if (invoice.FinalAmount !== undefined) {
-      request.input("finalAmount", sql.Decimal(18, 2), invoice.FinalAmount);
-      sets.push("FinalAmount = @finalAmount");
-    }
-    if (invoice.CreatedBy !== undefined) {
-      request.input("createdBy", sql.NVarChar(100), invoice.CreatedBy ?? null);
-      sets.push("CreatedBy = @createdBy");
-    }
-
-    if (sets.length === 0) {
-      await transaction.commit();
-      return await getInvoiceById(invoiceId);
-    }
-
-    const query = `
-      UPDATE SalesInvoice
-      SET ${sets.join(", ")}
-      OUTPUT INSERTED.*
-      WHERE InvoiceId = @invoiceId
-    `;
-
-    const result = await request.query(query);
-    await transaction.commit();
-
-    if (result.recordset.length === 0) return null;
-
-    return result.recordset[0] as SalesInvoice;
   } catch (error) {
     await transaction.rollback();
     throw error;

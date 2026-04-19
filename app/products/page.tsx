@@ -3,6 +3,20 @@
 // - Form to create a new product (POST to /api/products)
 // - "use client" for interactivity
 
+import PageHeader from "@/components/PageHeader";
+import ProductList from "@/components/ProductList";
+
 export default function ProductsPage() {
-  return null;
+  return (
+    <div>
+      <PageHeader
+        title="Quản lý Sản phẩm"
+        breadcrumbs={[
+          { label: "Dashboard", href: "/" },
+          { label: "Sản phẩm" },
+        ]}
+      />
+      <ProductList />
+    </div>
+  );
 }
