@@ -33,80 +33,94 @@ export async function getInvoices(): Promise<SalesInvoice[]> {
 }
 
 /**
- * Fetch a single invoice by ID with its lines
+ * Fetch a single invoice by ID with its lines.
+ *
+ * Wrapped in READ COMMITTED transaction to ensure header + lines are read
+ * from a consistent point in time (no torn read between the two queries).
  */
 export async function getInvoiceById(
   invoiceId: number
 ): Promise<SalesInvoice | null> {
   const pool = await getPool();
+  const transaction = new sql.Transaction(pool);
 
-  // Invoice header
-  const invoiceResult = await pool
-    .request()
-    .input("invoiceId", sql.Int, invoiceId)
-    .query(`
-      SELECT
-        InvoiceId, InvoiceCode, InvoiceDate,
-        TotalAmount, DiscountAmount, FinalAmount,
-        CreatedBy, CustomerName, CustomerPhone
-      FROM SalesInvoice
-      WHERE InvoiceId = @invoiceId
-    `);
+  try {
+    await transaction.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
 
-  if (invoiceResult.recordset.length === 0) return null;
+    const invoiceResult = await transaction
+      .request()
+      .input("invoiceId", sql.Int, invoiceId)
+      .query(`
+        SELECT
+          InvoiceId, InvoiceCode, InvoiceDate,
+          TotalAmount, DiscountAmount, FinalAmount,
+          CreatedBy, CustomerName, CustomerPhone
+        FROM SalesInvoice
+        WHERE InvoiceId = @invoiceId
+      `);
 
-  const invoiceRow = invoiceResult.recordset[0];
+    if (invoiceResult.recordset.length === 0) {
+      await transaction.commit();
+      return null;
+    }
 
-  // Invoice lines with product/variant info for display
-  const linesResult = await pool
-    .request()
-    .input("invoiceId", sql.Int, invoiceId)
-    .query(`
-      SELECT
-        sil.InvoiceId,
-        sil.[LineNo],
-        sil.VariantId,
-        sil.Quantity,
-        sil.UnitPrice,
-        sil.DiscountPct,
-        sil.LineTotal,
-        p.ProductName,
-        pv.Sku,
-        pv.Color,
-        pv.Storage
-      FROM SalesInvoiceLine sil
-      LEFT JOIN ProductVariant pv ON sil.VariantId = pv.VariantId
-      LEFT JOIN Product p ON pv.ProductId = p.ProductId
-      WHERE sil.InvoiceId = @invoiceId
-      ORDER BY sil.[LineNo]
-    `);
+    const invoiceRow = invoiceResult.recordset[0];
 
-  const lines: SalesInvoiceLine[] = linesResult.recordset.map((row) => ({
-    InvoiceId: row.InvoiceId,
-    LineNo: row.LineNo,
-    VariantId: row.VariantId,
-    Quantity: row.Quantity,
-    UnitPrice: row.UnitPrice,
-    DiscountPct: row.DiscountPct,
-    LineTotal: row.LineTotal,
-    ProductName: row.ProductName || "",
-    Sku: row.Sku || "",
-    Color: row.Color || null,
-    Storage: row.Storage || null,
-  }));
+    const linesResult = await transaction
+      .request()
+      .input("invoiceId", sql.Int, invoiceId)
+      .query(`
+        SELECT
+          sil.InvoiceId,
+          sil.[LineNo],
+          sil.VariantId,
+          sil.Quantity,
+          sil.UnitPrice,
+          sil.DiscountPct,
+          sil.LineTotal,
+          p.ProductName,
+          pv.Sku,
+          pv.Color,
+          pv.Storage
+        FROM SalesInvoiceLine sil
+        LEFT JOIN ProductVariant pv ON sil.VariantId = pv.VariantId
+        LEFT JOIN Product p ON pv.ProductId = p.ProductId
+        WHERE sil.InvoiceId = @invoiceId
+        ORDER BY sil.[LineNo]
+      `);
 
-  return {
-    InvoiceId: invoiceRow.InvoiceId,
-    InvoiceCode: invoiceRow.InvoiceCode,
-    InvoiceDate: invoiceRow.InvoiceDate,
-    TotalAmount: invoiceRow.TotalAmount,
-    DiscountAmount: invoiceRow.DiscountAmount,
-    FinalAmount: invoiceRow.FinalAmount,
-    CreatedBy: invoiceRow.CreatedBy || null,
-    CustomerName: invoiceRow.CustomerName || null,
-    CustomerPhone: invoiceRow.CustomerPhone || null,
-    Lines: lines,
-  };
+    await transaction.commit();
+
+    const lines: SalesInvoiceLine[] = linesResult.recordset.map((row) => ({
+      InvoiceId: row.InvoiceId,
+      LineNo: row.LineNo,
+      VariantId: row.VariantId,
+      Quantity: row.Quantity,
+      UnitPrice: row.UnitPrice,
+      DiscountPct: row.DiscountPct,
+      LineTotal: row.LineTotal,
+      ProductName: row.ProductName || "",
+      Sku: row.Sku || "",
+      Color: row.Color || null,
+      Storage: row.Storage || null,
+    }));
+
+    return {
+      InvoiceId: invoiceRow.InvoiceId,
+      InvoiceCode: invoiceRow.InvoiceCode,
+      InvoiceDate: invoiceRow.InvoiceDate,
+      TotalAmount: invoiceRow.TotalAmount,
+      DiscountAmount: invoiceRow.DiscountAmount,
+      FinalAmount: invoiceRow.FinalAmount,
+      CreatedBy: invoiceRow.CreatedBy || null,
+      CustomerName: invoiceRow.CustomerName || null,
+      CustomerPhone: invoiceRow.CustomerPhone || null,
+      Lines: lines,
+    };
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
 }
 
 /**

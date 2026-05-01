@@ -1,4 +1,7 @@
 // app/api/reports/route.ts
+//
+// GET /api/reports                     → dashboard (4 mảng) trong 1 SNAPSHOT tx
+// GET /api/reports?interval=day|week|month|quarter|year[&from=&to=] → 1 mảng theo period
 
 import { NextRequest, NextResponse } from "next/server";
 import {
@@ -6,16 +9,24 @@ import {
   getWeeklySales,
   getMonthlySales,
   getQuarterlySales,
-  getYearlySales
+  getYearlySales,
+  getDashboardSales,
 } from "@/lib/services";
 import { SalesSummaryByPeriod } from "@/lib/types/report";
 
 export async function GET(request: NextRequest) {
   try {
     const url = new URL(request.url);
-    const from = url.searchParams.get("from"); // 2024-01-01
-    const to = url.searchParams.get("to");     // 2024-12-31
-    const interval = url.searchParams.get("interval"); // day | week | month | quarter | year
+    const from = url.searchParams.get("from");
+    const to = url.searchParams.get("to");
+    const interval = url.searchParams.get("interval");
+
+    // Dashboard: 4 mảng (daily/weekly/monthly/yearly) trong 1 SNAPSHOT tx →
+    // tránh phantom read giữa các query.
+    if (!interval || interval === "dashboard") {
+      const data = await getDashboardSales();
+      return NextResponse.json({ data });
+    }
 
     const safeFrom = from ? new Date(from) : undefined;
     const safeTo = to ? new Date(to) : undefined;
@@ -41,7 +52,7 @@ export async function GET(request: NextRequest) {
       data = await getYearlySales(safeFrom, safeTo);
     } else {
       return NextResponse.json(
-        { error: "Missing or invalid 'interval'" },
+        { error: "Invalid 'interval' (use: day|week|month|quarter|year|dashboard)" },
         { status: 400 }
       );
     }
