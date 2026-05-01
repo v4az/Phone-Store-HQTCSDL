@@ -1,30 +1,25 @@
 // API Route: /api/inventory
-// GET — return stock levels joined across InventoryStock, ProductVariant, Product, InventoryLocation
+// GET — return stock levels via service layer (vw_InventoryByLocation).
+// Optional ?locationId= filter.
 
-import { NextResponse } from "next/server";
-import { getPool } from "@/lib/db";
+import { NextRequest, NextResponse } from "next/server";
+import { getInventoryStockList } from "@/lib/services/inventory";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const pool = await getPool();
-    const result = await pool.request().query(`
-      SELECT 
-        is_stk.VariantId,
-        is_stk.LocationId,
-        is_stk.QuantityOnHand,
-        is_stk.QuantityReserved,
-        pv.Sku,
-        p.ProductCode,
-        p.ProductName,
-        il.LocationName
-      FROM InventoryStock is_stk
-      JOIN ProductVariant pv ON is_stk.VariantId = pv.VariantId
-      JOIN Product p ON pv.ProductId = p.ProductId
-      JOIN InventoryLocation il ON is_stk.LocationId = il.LocationId
-      ORDER BY p.ProductName, pv.Sku, il.LocationName
-    `);
+    const url = new URL(request.url);
+    const locParam = url.searchParams.get("locationId");
+    const locationId = locParam ? Number(locParam) : undefined;
 
-    return NextResponse.json(result.recordset);
+    if (locationId !== undefined && Number.isNaN(locationId)) {
+      return NextResponse.json(
+        { error: "Invalid 'locationId'" },
+        { status: 400 }
+      );
+    }
+
+    const data = await getInventoryStockList(locationId);
+    return NextResponse.json(data);
   } catch (error: unknown) {
     console.error("GET /api/inventory error:", error);
     return NextResponse.json(
