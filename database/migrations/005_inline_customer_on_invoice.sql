@@ -7,12 +7,14 @@ ALTER TABLE SalesInvoice DROP CONSTRAINT FK_SalesInvoice_Customer;
 -- Add inline customer columns
 ALTER TABLE SalesInvoice ADD CustomerName NVARCHAR(200) NULL;
 ALTER TABLE SalesInvoice ADD CustomerPhone NVARCHAR(20) NULL;
+GO
 
 -- Migrate existing data from Customer table (if any)
 UPDATE si
 SET si.CustomerName = c.Name, si.CustomerPhone = c.Phone
 FROM SalesInvoice si
 JOIN Customer c ON si.CustomerId = c.CustomerId;
+GO
 
 -- Drop CustomerId column
 ALTER TABLE SalesInvoice DROP COLUMN CustomerId;
