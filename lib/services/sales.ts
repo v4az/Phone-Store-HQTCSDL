@@ -154,13 +154,12 @@ export async function createInvoice(
     }[] = [];
 
     for (const line of invoice.Lines) {
-      // Read authoritative price WITH (UPDLOCK) — prevents Non-Repeatable Read.
-      // The lock ensures no one can change RetailPrice until this transaction commits.
+      // Read authoritative price from DB (server-side validation).
       const priceResult = await transaction
         .request()
         .input("variantId", sql.Int, line.VariantId)
         .query(`
-          SELECT RetailPrice FROM ProductVariant WITH (UPDLOCK)
+          SELECT RetailPrice FROM ProductVariant
           WHERE VariantId = @variantId AND IsActive = 1
         `);
 
@@ -172,21 +171,33 @@ export async function createInvoice(
       const discountPct = line.DiscountPct ?? 0;
       const lineTotal = dbPrice * line.Quantity * (1 - discountPct / 100);
 
-      // Atomic stock deduction — prevents Lost Update.
-      // The WHERE clause (QuantityOnHand >= @qty) is the guard:
-      // if two sales race, both use the *current* DB value (not a stale read).
-      const stockResult = await transaction
-        .request()
+      // ===================== DEMO: LOST UPDATE =====================
+      // Đọc tồn kho → chờ 10s → ghi lại giá trị cũ - qty
+      // 2 request cùng đọc giá trị cũ → mất 1 lần trừ kho
+      const currentStock = await transaction.request()
         .input("variantId", sql.Int, line.VariantId)
         .input("locationId", sql.Int, locationId)
-        .input("qty", sql.Int, line.Quantity)
-        .query(`
-          UPDATE InventoryStock
-          SET QuantityOnHand = QuantityOnHand - @qty
-          WHERE VariantId = @variantId
-            AND LocationId = @locationId
-            AND QuantityOnHand >= @qty
-        `);
+        .query(`SELECT QuantityOnHand FROM InventoryStock WHERE VariantId = @variantId AND LocationId = @locationId`);
+      const qty = currentStock.recordset[0]?.QuantityOnHand ?? 0;
+      if (qty < line.Quantity) throw new InsufficientStockError(line.VariantId, line.Quantity, locationId);
+      await transaction.request().query(`WAITFOR DELAY '00:00:10'`);
+      const stockResult = await transaction.request()
+        .input("variantId", sql.Int, line.VariantId)
+        .input("locationId", sql.Int, locationId)
+        .input("newQty", sql.Int, qty - line.Quantity)
+        .query(`UPDATE InventoryStock SET QuantityOnHand = @newQty WHERE VariantId = @variantId AND LocationId = @locationId`);
+
+
+      // const stockResult = await transaction.request()
+      //   .input("variantId", sql.Int, line.VariantId)
+      //   .input("locationId", sql.Int, locationId)
+      //   .input("qty", sql.Int, line.Quantity)
+      //   .query(`
+      //     UPDATE InventoryStock
+      //     SET QuantityOnHand = QuantityOnHand - @qty
+      //     WHERE VariantId = @variantId AND LocationId = @locationId AND QuantityOnHand >= @qty
+      //   `);
+      // ===================== END DEMO =====================
 
       if (stockResult.rowsAffected[0] === 0) {
         throw new InsufficientStockError(line.VariantId, line.Quantity, locationId);

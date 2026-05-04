@@ -430,19 +430,22 @@ export async function updateProduct(
     }
 
     // Only update Product table fields that live in Product
-    const query = `
-      UPDATE Product
-      SET ${sets.filter(s => !s.includes("b.BrandName") && !s.includes("c.CategoryName")).join(", ")}
-      OUTPUT INSERTED.*
-      WHERE ProductId = @productId
-    `;
+    const productSets = sets.filter(s => !s.includes("b.BrandName") && !s.includes("c.CategoryName"));
+    if (productSets.length > 0) {
+      const query = `
+        UPDATE Product
+        SET ${productSets.join(", ")}
+        WHERE ProductId = @productId AND IsActive = 1
+      `;
+      const result = await request.query(query);
+      if (result.rowsAffected[0] === 0) {
+        await transaction.commit();
+        return null;
+      }
+    }
 
-    const result = await request.query(query);
     await transaction.commit();
-
-    if (result.recordset.length === 0) return null;
-
-    return result.recordset[0] as Product;
+    return await getProductById(productId);
   } catch (error) {
     await transaction.rollback();
     throw error;
