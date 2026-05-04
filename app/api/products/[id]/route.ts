@@ -1,7 +1,7 @@
 // app/api/products/[id]/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
-import { getProductById, updateProduct, updateInventoryStock } from "@/lib/services";
+import { getProductById, updateProduct, updateInventoryStock, updateVariantPrices } from "@/lib/services";
 import { Product } from "@/lib/types";
 
 // GET /api/products/[id]
@@ -80,17 +80,21 @@ export async function PATCH(
       );
     }
 
-    // Update inventory quantities if provided
+    // Update inventory quantities and variant prices if provided
     if (Array.isArray(body.InventoryUpdates) && body.InventoryUpdates.length > 0) {
-      const inventoryUpdates = body.InventoryUpdates
-        .filter((u: { VariantId: number; QuantityOnHand: number }) =>
-          u.VariantId && u.QuantityOnHand >= 0
-        )
-        .map((u: { VariantId: number; QuantityOnHand: number }) => ({
-          VariantId: u.VariantId,
-          QuantityOnHand: u.QuantityOnHand,
-        }));
-      await updateInventoryStock(inventoryUpdates);
+      const updates = body.InventoryUpdates.filter(
+        (u: any) => u.VariantId
+      );
+      await updateInventoryStock(
+        updates
+          .filter((u: any) => u.QuantityOnHand >= 0)
+          .map((u: any) => ({ VariantId: u.VariantId, QuantityOnHand: u.QuantityOnHand }))
+      );
+      await updateVariantPrices(
+        updates
+          .filter((u: any) => u.RetailPrice !== undefined && u.RetailPrice >= 0)
+          .map((u: any) => ({ VariantId: u.VariantId, RetailPrice: u.RetailPrice }))
+      );
     }
 
     return NextResponse.json(updatedProduct);

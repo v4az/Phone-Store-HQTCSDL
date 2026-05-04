@@ -37,15 +37,16 @@ export default function ProductForm({ initialData, onSuccess, onCancel }: Produc
       const category = categories.find((c: any) => c.CategoryId === values.CategoryId) as any;
 
       if (initialData) {
-        // Edit mode: update product info + inventory
+        // Edit mode: update product info + inventory + prices
         const payload = {
           ...values,
           BrandName: brand?.BrandName,
           CategoryName: category?.CategoryName,
-          // Send inventory updates for each variant
+          // Send inventory + price updates for each variant
           InventoryUpdates: initialData.Variants.map((v, i) => ({
             VariantId: v.VariantId,
             QuantityOnHand: values.Variants?.[i]?.QuantityOnHand ?? v.QuantityOnHand ?? 0,
+            RetailPrice: values.Variants?.[i]?.RetailPrice ?? v.RetailPrice,
           })),
         };
         // Remove Variants from product update payload (variants aren't editable here)
@@ -269,28 +270,42 @@ export default function ProductForm({ initialData, onSuccess, onCancel }: Produc
         </>
       )}
 
-      {/* Edit mode: show existing variants with editable inventory */}
+      {/* Edit mode: show existing variants with editable inventory + price */}
       {initialData && initialData.Variants.length > 0 && (
         <>
-          <Divider>Tồn kho theo phiên bản</Divider>
+          <Divider>Tồn kho & Giá theo phiên bản</Divider>
           {initialData.Variants.map((variant, index) => (
             <Card size="small" key={variant.VariantId} style={{ marginBottom: 12 }}>
               <Row gutter={16} align="middle">
-                <Col span={6}>
+                <Col span={5}>
                   <Text strong>SKU:</Text> {variant.Sku}
                 </Col>
-                <Col span={4}>
+                <Col span={3}>
                   <Text type="secondary">{variant.Color || "—"}</Text>
                 </Col>
-                <Col span={4}>
+                <Col span={3}>
                   <Text type="secondary">{variant.Storage || "—"}</Text>
                 </Col>
-                <Col span={4}>
+                <Col span={3}>
                   <Text type="secondary">
                     Đã đặt: {variant.QuantityReserved ?? 0}
                   </Text>
                 </Col>
-                <Col span={6}>
+                <Col span={5}>
+                  <Form.Item
+                    name={["Variants", index, "RetailPrice"]}
+                    label="Giá bán"
+                    style={{ marginBottom: 0 }}
+                  >
+                    <InputNumber
+                      min={0}
+                      style={{ width: "100%" }}
+                      formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}
+                      parser={(value) => Number(value?.replace(/,/g, ""))}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col span={5}>
                   <Form.Item
                     name={["Variants", index, "QuantityOnHand"]}
                     label="Tồn kho"

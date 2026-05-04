@@ -482,3 +482,36 @@ export async function updateInventoryStock(
     throw error;
   }
 }
+
+/**
+ * Update retail prices for multiple variants in a single transaction.
+ */
+export async function updateVariantPrices(
+  updates: { VariantId: number; RetailPrice: number }[]
+): Promise<void> {
+  if (updates.length === 0) return;
+
+  const pool = await getPool();
+  const transaction = new sql.Transaction(pool);
+
+  try {
+    await transaction.begin();
+
+    for (const { VariantId, RetailPrice } of updates) {
+      await transaction
+        .request()
+        .input("variantId", sql.Int, VariantId)
+        .input("retailPrice", sql.Decimal(18, 2), RetailPrice)
+        .query(`
+          UPDATE ProductVariant
+          SET RetailPrice = @retailPrice
+          WHERE VariantId = @variantId
+        `);
+    }
+
+    await transaction.commit();
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
+}
