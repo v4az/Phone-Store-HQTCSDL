@@ -35,7 +35,7 @@ Cửa hàng bán **điện thoại** và **phụ kiện** (case, sạc, tai nghe
 - Nghiệp vụ **bán hàng**: lập hoá đơn nhiều dòng, mỗi dòng gắn với 1 variant; trừ tồn kho ngay khi commit.
 - Nghiệp vụ **nhập hàng**: đặt hàng từ nhà cung cấp.
 - **Báo cáo doanh thu**: theo ngày / tuần / tháng / quý / năm; dashboard tổng hợp 4 dải thời gian đồng nhất.
-- **User & audit**: có nhiều nhân viên (admin / manager / staff); thay đổi quan trọng (sửa hoá đơn, xóa hoá đơn, đổi giá sản phẩm) phải được **audit log** tự động bởi DB.
+- **Audit log**: thay đổi quan trọng (sửa hoá đơn, xóa hoá đơn, đổi giá sản phẩm) phải được **audit log** tự động bởi DB ở cấp system.
 
 ### 1.2 Stack & lý do chọn SQL Server
 
@@ -88,13 +88,13 @@ Cửa hàng bán **điện thoại** và **phụ kiện** (case, sạc, tai nghe
 | `004_add_validation_constraints.sql` | 10 CHECK constraints + trigger `TR_ProductVariant_AfterInsert` |
 | `005_inline_customer_on_invoice.sql` | Drop bảng Customer, inline `CustomerName`/`CustomerPhone` lên SalesInvoice |
 | `006_add_views_functions_indexes.sql` | 2 UDF + 3 view + 5 NC index |
-| `007_add_user_and_audit.sql` | `AppUser` + `AuditLog` + 3 audit trigger |
+| `007_add_user_and_audit.sql` | `AuditLog` + 3 audit trigger |
 
 ---
 
 ## 2. Mô hình thực thể (Entity)
 
-Tổng cộng **13 entity** (bảng người dùng, không tính `_MigrationHistory`):
+Tổng cộng **12 entity** (bảng người dùng, không tính `_MigrationHistory`):
 
 | # | Entity | Vai trò nghiệp vụ |
 |---|---|---|
@@ -109,8 +109,7 @@ Tổng cộng **13 entity** (bảng người dùng, không tính `_MigrationHist
 | 9 | **PurchaseOrderLine** | Chi tiết đơn nhập (1 dòng = 1 variant + qty + cost) |
 | 10 | **SalesInvoice** | Hoá đơn bán (header, có inline customer info) |
 | 11 | **SalesInvoiceLine** | Chi tiết hoá đơn bán (1 dòng = 1 variant + qty + price) |
-| 12 | **AppUser** | Người dùng hệ thống (admin / manager / staff) |
-| 13 | **AuditLog** | Log thay đổi hoá đơn / sản phẩm (auto bởi trigger) |
+| 12 | **AuditLog** | Log thay đổi hoá đơn / sản phẩm (auto bởi trigger, system-level) |
 
 ### 2.1 Lý do "logic vs variant"
 
@@ -132,9 +131,11 @@ Migration `005` đã bỏ bảng `Customer`. Lý do:
 
 Trade-off: nếu khách thay tên/số, lịch sử cũ giữ giá trị tại thời điểm bán (đúng nghiệp vụ kế toán).
 
-### 2.3 Lý do `AppUser` & `AuditLog` (migration 007)
+### 2.3 Lý do `AuditLog` (migration 007)
 
-Mô phỏng hệ thống thực tế có nhiều user. `AppUser` lưu danh sách nhân viên + role; `AuditLog` ghi lại mọi thay đổi quan trọng (sửa giá, sửa hoá đơn, xóa). Chi tiết Ch.7.
+`AuditLog` ghi lại mọi thay đổi quan trọng (sửa giá, sửa hoá đơn, xoá) **ở cấp system** — không gắn với entity user. Phục vụ forensic & compliance. Chi tiết Ch.7.
+
+**Lý do không có entity User**: hệ thống hiện tại không có authentication, mọi thao tác qua app đi cùng 1 connection string. Audit ghi nhận thay đổi (cái gì + khi nào) là đủ. Khi cần phân biệt "ai" → mở rộng tương lai bằng `SET CONTEXT_INFO` ở app + cột `ChangedByUserId` trong AuditLog.
 
 ---
 
@@ -226,7 +227,7 @@ PurchaseOrder header:
 | `PurchaseDate` | DATETIME DEFAULT GETDATE() | |
 | `Note` | NVARCHAR(500) | |
 | `TotalAmount` | DECIMAL(18,2) DEFAULT 0 | |
-| `CreatedBy` | NVARCHAR(100) | (sẽ chuyển FK→AppUser ở future work) |
+| `CreatedBy` | NVARCHAR(100) | username/identifier nguời tạo (text, chưa có FK auth) |
 
 PurchaseOrderLine — composite PK (PurchaseId, [LineNo]):
 
@@ -265,20 +266,7 @@ PurchaseOrderLine — composite PK (PurchaseId, [LineNo]):
 | `DiscountPct` | DECIMAL(5,2) | CHECK ∈ [0, 100] |
 | `LineTotal` | DECIMAL(18,2) | |
 
-### 3.11 AppUser (migration 007)
-
-| Cột | Kiểu | Null | Default | Mô tả |
-|---|---|---|---|---|
-| `UserId` | INT IDENTITY | ✗ | — | PK |
-| `Username` | NVARCHAR(50) | ✗ | — | UNIQUE |
-| `FullName` | NVARCHAR(100) | ✗ | — | |
-| `Role` | NVARCHAR(20) | ✗ | — | CHECK ∈ {admin, manager, staff} |
-| `IsActive` | BIT | ✗ | 1 | |
-| `CreatedAt` | DATETIME | ✗ | GETDATE() | |
-
-**Seed data**: 3 user (`admin`, `manager01`, `staff01`).
-
-### 3.12 AuditLog (migration 007)
+### 3.11 AuditLog (migration 007)
 
 | Cột | Kiểu | Null | Default | Mô tả |
 |---|---|---|---|---|
@@ -289,7 +277,6 @@ PurchaseOrderLine — composite PK (PurchaseId, [LineNo]):
 | `OldValue` | NVARCHAR(MAX) | ✓ | — | JSON snapshot row trước |
 | `NewValue` | NVARCHAR(MAX) | ✓ | — | JSON snapshot row sau (NULL khi DELETE) |
 | `ChangedAt` | DATETIME | ✗ | GETDATE() | |
-| `ChangedByUserId` | INT | ✓ | NULL | FK → AppUser (NULL cho system action) |
 
 ---
 
@@ -311,7 +298,6 @@ PurchaseOrderLine — composite PK (PurchaseId, [LineNo]):
 | ProductVariant | PurchaseOrderLine | PurchaseOrderLine.VariantId |
 | SalesInvoice | SalesInvoiceLine | SalesInvoiceLine.InvoiceId |
 | ProductVariant | SalesInvoiceLine | SalesInvoiceLine.VariantId |
-| AppUser | AuditLog | AuditLog.ChangedByUserId |
 
 **N:M (Many-to-Many)** — qua bảng giao:
 - `ProductVariant ↔ InventoryLocation` qua **InventoryStock** (composite PK đảm bảo cặp duy nhất).
@@ -334,7 +320,6 @@ erDiagram
     ProductVariant ||--o{ PurchaseOrderLine : "sold_in"
     SalesInvoice ||--o{ SalesInvoiceLine : "contains"
     ProductVariant ||--o{ SalesInvoiceLine : "sold_in"
-    AppUser ||--o{ AuditLog : "performs"
 
     Brand {
         int BrandId PK
@@ -402,18 +387,13 @@ erDiagram
         int Quantity
         decimal UnitPrice
     }
-    AppUser {
-        int UserId PK
-        nvarchar Username UK
-        nvarchar Role
-    }
     AuditLog {
         bigint AuditId PK
         nvarchar TableName
         nvarchar Action
         nvarchar OldValue
         nvarchar NewValue
-        int ChangedByUserId FK
+        datetime ChangedAt
     }
 ```
 
@@ -432,17 +412,17 @@ Category ──1:N────┘                     │                       
 
 Supplier ──1:N──► PurchaseOrder ──1:N──► PurchaseOrderLine ──FK──► ProductVariant
 
-AppUser ──1:N──► AuditLog (ChangedByUserId)
+AuditLog (system-level, không gắn user)
 ```
 
 ### 4.4 Chiến lược khoá
 
 | Loại | Áp dụng | Lý do |
 |---|---|---|
-| **Surrogate PK (IDENTITY)** | Brand, Category, Product, ProductVariant, Supplier, InventoryLocation, PurchaseOrder, SalesInvoice, AppUser, AuditLog | Tách biệt key kỹ thuật khỏi key nghiệp vụ, dễ refactor sau |
+| **Surrogate PK (IDENTITY)** | Brand, Category, Product, ProductVariant, Supplier, InventoryLocation, PurchaseOrder, SalesInvoice, AuditLog | Tách biệt key kỹ thuật khỏi key nghiệp vụ, dễ refactor sau |
 | **Composite PK** | InventoryStock (Variant, Location), SalesInvoiceLine (Invoice, [LineNo]), PurchaseOrderLine (Purchase, [LineNo]) | Đảm bảo tổ hợp duy nhất, không cần thêm cột thừa |
-| **Natural-business UNIQUE** | ProductCode, Sku, InvoiceCode, BrandName, Username | Bảo vệ business rule "không trùng mã" |
-| **Soft-delete `IsActive`** | Brand, Category, Product, ProductVariant, Supplier, AppUser | Giữ lịch sử, tránh vi phạm FK khi đã có giao dịch |
+| **Natural-business UNIQUE** | ProductCode, Sku, InvoiceCode, BrandName | Bảo vệ business rule "không trùng mã" |
+| **Soft-delete `IsActive`** | Brand, Category, Product, ProductVariant, Supplier | Giữ lịch sử, tránh vi phạm FK khi đã có giao dịch |
 
 **Trade-off** Surrogate vs Natural PK: surrogate tốn 4 byte mỗi row nhưng đổi mã nghiệp vụ (ProductCode, Sku) không phải cascade FK toàn hệ thống → dễ bảo trì.
 
@@ -469,9 +449,7 @@ AppUser ──1:N──► AuditLog (ChangedByUserId)
 | `CHK_SalesInvoiceLine_DiscountPct` | SalesInvoiceLine | CHECK | `0 <= DiscountPct <= 100` | |
 | `CHK_SalesInvoice_TotalAmount` | SalesInvoice | CHECK | `TotalAmount >= 0` | |
 | `CHK_SalesInvoice_FinalAmount` | SalesInvoice | CHECK | `FinalAmount >= 0` | |
-| `CHK_AppUser_Role` | AppUser | CHECK | `Role IN ('admin','manager','staff')` | Enum role tại DB |
 | `CHK_AuditLog_Action` | AuditLog | CHECK | `Action IN ('INSERT','UPDATE','DELETE')` | Enum action |
-| `FK_AuditLog_AppUser` | AuditLog | FK | ChangedByUserId → AppUser | |
 
 ### 5.2 Trade-off: ràng buộc DB-side vs app-side
 
@@ -496,7 +474,7 @@ AppUser ──1:N──► AuditLog (ChangedByUserId)
 | Loại | Bảng | Index | Tự động? |
 |---|---|---|---|
 | **Clustered (PK)** | mọi bảng | trên cột PK | Tự động khi PRIMARY KEY |
-| **Unique non-clustered** | Brand, Product, ProductVariant, SalesInvoice, AppUser | từ UNIQUE constraint | Tự động |
+| **Unique non-clustered** | Brand, Product, ProductVariant, SalesInvoice | từ UNIQUE constraint | Tự động |
 | **Non-clustered (NC)** | 6 indexes (Ch.6.2-6.3) | tự định nghĩa | Manual (`CREATE INDEX`) |
 
 SQL Server mặc định tạo **clustered index trên PK** — lưu data physically theo thứ tự PK. Bảng có composite PK (InventoryStock, SalesInvoiceLine, PurchaseOrderLine) → clustered index tổ hợp.
@@ -564,7 +542,7 @@ CREATE NONCLUSTERED INDEX IX_SalesInvoiceLine_VariantId
 ```sql
 CREATE NONCLUSTERED INDEX IX_AuditLog_Table_Time
     ON dbo.AuditLog(TableName, ChangedAt DESC)
-    INCLUDE (RecordId, Action, ChangedByUserId);
+    INCLUDE (RecordId, Action);
 ```
 
 - **Tại sao**: tra cứu lịch sử "10 lần sửa hoá đơn gần nhất" → composite (TableName, ChangedAt DESC) match đúng query.
@@ -629,14 +607,13 @@ AFTER UPDATE
 AS
 BEGIN
     SET NOCOUNT ON;
-    INSERT INTO AuditLog (TableName, RecordId, Action, OldValue, NewValue, ChangedByUserId)
+    INSERT INTO AuditLog (TableName, RecordId, Action, OldValue, NewValue)
     SELECT
         N'SalesInvoice',
         CAST(i.InvoiceId AS NVARCHAR(100)),
         N'UPDATE',
         (SELECT d2.* FROM deleted  d2 WHERE d2.InvoiceId = i.InvoiceId FOR JSON PATH, WITHOUT_ARRAY_WRAPPER),
-        (SELECT i2.* FROM inserted i2 WHERE i2.InvoiceId = i.InvoiceId FOR JSON PATH, WITHOUT_ARRAY_WRAPPER),
-        NULL
+        (SELECT i2.* FROM inserted i2 WHERE i2.InvoiceId = i.InvoiceId FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
     FROM inserted i;
 END;
 ```
@@ -648,7 +625,7 @@ END;
 - Atomic với transaction gốc: nếu rollback hoá đơn, log cũng rollback theo.
 
 **Hạn chế**:
-- `ChangedByUserId` = NULL trong scope hiện tại. Để populate, app phải set `CONTEXT_INFO` trước UPDATE và trigger đọc lại — chưa làm (out of scope).
+- Audit ở cấp **system** — không gắn user. Khi cần biết "ai sửa" → mở rộng tương lai bằng app `SET CONTEXT_INFO @userId` + thêm cột `ChangedByUserId` trong AuditLog.
 - Mỗi UPDATE → 2 subquery `FOR JSON PATH` (deleted, inserted) → overhead I/O ~5-15%.
 
 ### 7.3 `TR_SalesInvoice_AfterDelete_AuditLog` (migration 007)
@@ -1321,15 +1298,15 @@ Hệ thống dùng RC làm baseline + cherry-pick: SNAPSHOT cho dashboard, UPDLO
 
 | Loại | Số lượng | Tên |
 |---|---|---|
-| Bảng nghiệp vụ | 13 | Brand, Category, Product, ProductVariant, InventoryLocation, InventoryStock, Supplier, PurchaseOrder, PurchaseOrderLine, SalesInvoice, SalesInvoiceLine, AppUser, AuditLog |
+| Bảng nghiệp vụ | 12 | Brand, Category, Product, ProductVariant, InventoryLocation, InventoryStock, Supplier, PurchaseOrder, PurchaseOrderLine, SalesInvoice, SalesInvoiceLine, AuditLog |
 | Trigger | 4 | TR_ProductVariant_AfterInsert, TR_SalesInvoice_AfterUpdate_AuditLog, TR_SalesInvoice_AfterDelete_AuditLog, TR_Product_AfterUpdate_AuditLog |
 | UDF | 2 | fn_GetAvailableStock, fn_GetProductDisplayName |
 | View | 3 | vw_ProductCatalog, vw_InventoryByLocation, vw_DailySalesSummary |
 | Non-clustered index | 6 | IX_SalesInvoice_InvoiceDate, IX_SalesInvoice_CustomerPhone, IX_ProductVariant_ProductId, IX_InventoryStock_LocationId, IX_SalesInvoiceLine_VariantId, IX_AuditLog_Table_Time |
-| Clustered index | 13 | từ PK của 13 bảng |
-| Unique non-clustered (auto) | 5 | từ UNIQUE constraints |
+| Clustered index | 12 | từ PK của 12 bảng |
+| Unique non-clustered (auto) | 4 | từ UNIQUE constraints |
 | CHECK constraint | 12+ | Ch.5 |
-| FK constraint | 12 | Ch.4 |
+| FK constraint | 11 | Ch.4 |
 
 ### 12.3 Lớp bảo vệ concurrency (defense in depth)
 
@@ -1375,11 +1352,10 @@ Hệ thống dùng **nhiều lớp** chứ không chỉ 1 cơ chế:
 - Service layer quản lý transaction; API route chỉ "thin" — kiểm thử dễ.
 
 **Cải tiến tương lai**:
-- **`ChangedByUserId` populate**: hiện NULL. App cần `SET CONTEXT_INFO` trước UPDATE để trigger đọc lại.
+- **AuditLog user-aware**: hiện audit ở cấp system. Khi có auth real → thêm cột `ChangedByUserId` (FK tới bảng User mới) + app `SET CONTEXT_INFO @userId` đầu mỗi tx → trigger đọc lại.
 - **Indexed view** cho `vw_DailySalesSummary` khi traffic > 100k hoá đơn/ngày.
 - **Audit thêm cho InventoryStock**: thay đổi tồn kho nhạy cảm tài chính, hiện chưa log.
 - **Optimistic locking** (cột `RowVersion`) cho update sản phẩm — giảm pessimistic lock contention.
-- **CreatedBy** chuyển từ `NVARCHAR` sang FK → `AppUser.UserId` (retrofit khi có auth real).
 - **Foreign key cascade rules**: hiện default `NO ACTION`. Cân nhắc `ON DELETE CASCADE` cho SalesInvoiceLine khi xoá SalesInvoice.
 
 ### 12.5 Câu hỏi mở
